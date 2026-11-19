@@ -192,6 +192,8 @@ When it's locked, the overlay is **click-through**: your mouse goes straight to 
 
 ### Expected resource use
 
+> v12 switched to **software rendering** and removed the per-update bar animations. Those two changes were the main RAM and CPU costs. Settings now shows *RAM in use* (about what Task Manager shows) and *reserved* (commit).
+
 These are estimates. Open **Settings** to see the live numbers on your machine.
 
 
@@ -224,6 +226,10 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 
 ---
 
+## Roadmap
+
+Planned ideas, such as a big widget redesign and optional animations, are in [ROADMAP.md](ROADMAP.md).
+
 ## Not included (yet)
 
 - **CPU/GPU temperature.** Windows doesn't expose it without a kernel driver or admin rights.
@@ -241,7 +247,8 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 
 | Version | What changed | Issues |
 |---|---|---|
-| **v11** | Fixes the auto-hide blink (the bar sits closer to the edge, and the hot zone reaches the edge). Adds **Game mode** and **Adaptive text**. Item widths can shrink again, slowly | #22, #23, #24 |
+| **v12** | Lighter: software rendering, no bar animations, and slower GPU and process scans. Widget and free-move overlay stay on screen. Settings shows the RAM in use and the reserved RAM | #26, #27 |
+| v11 | Fixes the auto-hide blink (the bar sits closer to the edge, and the hot zone reaches the edge). Adds **Game mode** and **Adaptive text**. Item widths can shrink again, slowly | #22, #23, #24 |
 | v10.1 | A tighter overlay: items sized to their text, with grow-only widths | #20 |
 | v10 | Overlay **auto-hide**: a thin iPhone-style bar when idle, which expands when you hover it | #18 |
 | v9 | Compact overlay with dividers and a mini CPU + RAM graph. Outline now readable on white wallpapers (dark ring and text halo) | #14, #15, #16 |
