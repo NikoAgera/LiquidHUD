@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v8  -  glass system monitor widget + game overlay for Windows
+#  LiquidHUD v9  -  glass system monitor widget + game overlay for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -102,7 +102,7 @@ $cfg = [pscustomobject]@{
     Left = -1; Top = 40; Topmost = $false; Look = 'Outline'; Overlay = $false; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayX = 0.98; OverlayY = 0.01
     WidgetHidden = $false; Interval = 2; Clock24 = $true
     Show = [pscustomobject]$showDefault
-    OsdShow = [pscustomobject][ordered]@{ Cpu = $true; Gpu = $true; Ram = $true; Net = $true; TopC = $true; TopR = $false; Batt = $false; Clock = $true }
+    OsdShow = [pscustomobject][ordered]@{ Cpu = $true; Gpu = $true; Ram = $true; Net = $true; TopC = $true; TopR = $false; Batt = $false; Graph = $true; Clock = $true }
     Disks = @{}
 }
 if (Test-Path $cfgFile) {
@@ -126,6 +126,7 @@ function Want-Table {
         $w[$k] = ([bool]$cfg.Show.$k -and -not $cfg.WidgetHidden) -or ($cfg.Overlay -and [bool]$cfg.OsdShow.$k)
     }
     $w.Graph = $w.Graph -and -not $cfg.WidgetHidden
+    if ($cfg.Overlay -and $cfg.OsdShow.Graph) { $w.Cpu = $true; $w.Ram = $true }
     $w.Disks = @(foreach ($dv in $script:drives) { if ($cfg.Disks[$dv.Letter] -and -not $cfg.WidgetHidden) { $dv.Letter } })
     $w
 }
@@ -244,13 +245,13 @@ $collector = {
                 $procPrev = $cur
                 $bk = $null; $bv = -1.0
                 foreach ($e in $cpuBy.GetEnumerator()) { if ($e.Value -gt $bv) { $bv = $e.Value; $bk = $e.Key } }
-                if ($bk) { $d.TopC = '{0}  {1:N0}%' -f $bk, ([Math]::Min(100, $bv / ($el * $cores) * 100)) }
+                if ($bk) { $pc = [Math]::Min(100, $bv / ($el * $cores) * 100); $d.TopC = '{0}  {1:N0}%' -f $bk, $pc; $d.TopCName = $bk; $d.TopCPct = $pc }
                 $bk = $null; $bv = -1.0
                 foreach ($e in $ramBy.GetEnumerator()) { if ($e.Value -gt $bv) { $bv = $e.Value; $bk = $e.Key } }
                 if ($bk) { $d.TopR = $bk; $d.TopRBytes = $bv }
                 $cpuBy = $null; $ramBy = $null
             }
-            $n.TopC = $d.TopC; $n.TopR = $d.TopR; $n.TopRBytes = $d.TopRBytes
+            $n.TopC = $d.TopC; $n.TopCName = $d.TopCName; $n.TopCPct = $d.TopCPct; $n.TopR = $d.TopR; $n.TopRBytes = $d.TopRBytes
 
             # how much LiquidHUD itself is using
             $self.Refresh()
@@ -327,6 +328,7 @@ function Widget-Xaml {
             FontFamily="Segoe UI Variable Display, Segoe UI" UseLayoutRounding="True">
       $chrome
       <Grid Margin="$gridMargin">
+        <Border x:Name="Halo" CornerRadius="23" Margin="-1" BorderThickness="1" BorderBrush="#66000000" IsHitTestVisible="False"/>
         <Border x:Name="Glass" CornerRadius="$radius" BorderThickness="$edge" Background="#800C0E16">
           <Border.BorderBrush>
             <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
@@ -342,6 +344,7 @@ function Widget-Xaml {
           </Border.Background>
         </Border>
     
+        <Border x:Name="ContentWrap">
         <StackPanel x:Name="Content" Margin="20,16,20,18" Typography.NumeralAlignment="Tabular">
           <Grid>
             <StackPanel Orientation="Horizontal">
@@ -376,6 +379,7 @@ function Widget-Xaml {
           $(Info 'TopC' 'Top CPU')
           $(Info 'TopR' 'Top RAM')
         </StackPanel>
+        </Border>
       </Grid>
     </Window>
 "@
@@ -383,8 +387,12 @@ function Widget-Xaml {
 
 $script:win = $null
 $textShadow = New-Object Windows.Media.Effects.DropShadowEffect
-$textShadow.BlurRadius = 6; $textShadow.ShadowDepth = 0; $textShadow.Opacity = 0.95; $textShadow.Color = [Windows.Media.Colors]::Black
+$textShadow.BlurRadius = 4; $textShadow.ShadowDepth = 0; $textShadow.Opacity = 1; $textShadow.Color = [Windows.Media.Colors]::Black
 $textShadow.Freeze()
+# second, wider halo layered on top: keeps white text readable on white wallpapers
+$textHalo = New-Object Windows.Media.Effects.DropShadowEffect
+$textHalo.BlurRadius = 9; $textHalo.ShadowDepth = 0; $textHalo.Opacity = 0.55; $textHalo.Color = [Windows.Media.Colors]::Black
+$textHalo.Freeze()
 
 function Build-Widget {
     if ($script:win) {
@@ -395,7 +403,7 @@ function Build-Widget {
     $w = [Windows.Markup.XamlReader]::Parse((Widget-Xaml))
     $script:win = $w
     $script:ui = @{}
-    foreach ($n in 'Glass','Sheen','Content','Pill','PillText','Clock','CpuVal','CpuBar','CpuSub','GpuVal','GpuBar','GpuSub','RamVal','RamBar','RamSub',
+    foreach ($n in 'Halo','Glass','Sheen','Content','ContentWrap','Pill','PillText','Clock','CpuVal','CpuBar','CpuSub','GpuVal','GpuBar','GpuSub','RamVal','RamBar','RamSub',
                    'LineCpu','LineGpu','NetVal','BattVal','UpVal','TopCVal','TopRVal') { $script:ui[$n] = $w.FindName($n) }
     $script:rows = @{}
     foreach ($k in $metrics.Keys) { if ($k -ne 'Clock') { $script:rows[$k] = $w.FindName("${k}Row") } }
@@ -436,25 +444,32 @@ $osdXaml = @"
         ShowInTaskbar="False" ShowActivated="False" Focusable="False" IsHitTestVisible="False"
         SizeToContent="WidthAndHeight" ResizeMode="NoResize"
         FontFamily="Segoe UI Variable Display, Segoe UI" UseLayoutRounding="True">
-  <Grid>
+  <Grid Margin="1">
+  <Border x:Name="oHalo" CornerRadius="12" Margin="-1" BorderThickness="1" BorderBrush="#66000000"/>
   <Border x:Name="oBg" CornerRadius="11" Background="#F00C0E16" BorderBrush="#40FFFFFF" BorderThickness="1"/>
-  <Border Padding="6,5,12,6">
-    <StackPanel x:Name="oContent" Orientation="Horizontal" TextBlock.FontSize="12.5" Typography.NumeralAlignment="Tabular">
-      <StackPanel x:Name="sCpu" Orientation="Horizontal" Margin="6,0,6,0"><TextBlock Text="CPU " Foreground="#99FFFFFF" FontWeight="SemiBold"/><TextBlock x:Name="oCpu" Text="--" Foreground="White" FontWeight="Bold" Width="38" TextAlignment="Right"/></StackPanel>
-      <StackPanel x:Name="sGpu" Orientation="Horizontal" Margin="6,0,6,0"><TextBlock Text="GPU " Foreground="#99FFFFFF" FontWeight="SemiBold"/><TextBlock x:Name="oGpu" Text="--" Foreground="#9FE1CB" FontWeight="Bold" Width="38" TextAlignment="Right"/></StackPanel>
-      <StackPanel x:Name="sRam" Orientation="Horizontal" Margin="6,0,6,0"><TextBlock Text="RAM " Foreground="#99FFFFFF" FontWeight="SemiBold"/><TextBlock x:Name="oRam" Text="--" Foreground="White" FontWeight="Bold" Width="38" TextAlignment="Right"/></StackPanel>
-      <TextBlock x:Name="sNet" Text="" Foreground="#CCFFFFFF" Margin="6,0,6,0" Width="182"/>
-      <TextBlock x:Name="sTopC" Text="" Foreground="#99FFFFFF" Margin="6,0,6,0" Width="150" TextTrimming="CharacterEllipsis"/>
-      <TextBlock x:Name="sTopR" Text="" Foreground="#99FFFFFF" Margin="6,0,6,0" Width="150" TextTrimming="CharacterEllipsis"/>
-      <TextBlock x:Name="sBatt" Text="" Foreground="#CCFFFFFF" Margin="6,0,6,0" Width="58"/>
-      <TextBlock x:Name="sClock" Text="" Foreground="White" FontWeight="Light" Margin="6,0,0,0" TextAlignment="Right"/>
+  <Border x:Name="oPad" Padding="10,4,11,5">
+    <StackPanel x:Name="oContent" Orientation="Horizontal" TextBlock.FontSize="12.5" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center">
+      <StackPanel x:Name="sCpu" Orientation="Horizontal"><Border x:Name="dCpu" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock Text="CPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,4,0"/><TextBlock x:Name="oCpu" Text="--" Foreground="White" FontWeight="Bold" Width="32"/></StackPanel>
+      <StackPanel x:Name="sGpu" Orientation="Horizontal"><Border x:Name="dGpu" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock Text="GPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,4,0"/><TextBlock x:Name="oGpu" Text="--" Foreground="#9FE1CB" FontWeight="Bold" Width="32"/></StackPanel>
+      <StackPanel x:Name="sRam" Orientation="Horizontal"><Border x:Name="dRam" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock Text="RAM" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,4,0"/><TextBlock x:Name="oRam" Text="--" Foreground="White" FontWeight="Bold" Width="32"/></StackPanel>
+      <StackPanel x:Name="sGraph" Orientation="Horizontal"><Border x:Name="dGraph" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/>
+        <Border Width="56" Height="18" CornerRadius="4" Background="#1AFFFFFF" ClipToBounds="True" VerticalAlignment="Center">
+          <Canvas><Polyline x:Name="oLineRam" Stroke="#AFA9EC" StrokeThickness="1.3" StrokeLineJoin="Round"/><Polyline x:Name="oLineCpu" Stroke="#85B7EB" StrokeThickness="1.3" StrokeLineJoin="Round"/></Canvas>
+        </Border>
+      </StackPanel>
+      <StackPanel x:Name="sNet" Orientation="Horizontal"><Border x:Name="dNet" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock Text="&#x2193;" Foreground="#A6FFFFFF" Margin="0,0,3,0"/><TextBlock x:Name="oDown" Foreground="White" Width="60"/><TextBlock Text="&#x2191;" Foreground="#A6FFFFFF" Margin="2,0,3,0"/><TextBlock x:Name="oUp" Foreground="White" Width="60"/></StackPanel>
+      <StackPanel x:Name="sTopC" Orientation="Horizontal"><Border x:Name="dTopC" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="oTopCName" Foreground="#CCFFFFFF" MaxWidth="96" Width="96" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopCVal" Foreground="White" FontWeight="SemiBold" Width="30" Margin="4,0,0,0"/></StackPanel>
+      <StackPanel x:Name="sTopR" Orientation="Horizontal"><Border x:Name="dTopR" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="oTopRName" Foreground="#CCFFFFFF" Width="80" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopRVal" Foreground="White" FontWeight="SemiBold" Width="52" Margin="4,0,0,0"/></StackPanel>
+      <StackPanel x:Name="sBatt" Orientation="Horizontal"><Border x:Name="dBatt" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="oBatt" Foreground="White" FontWeight="SemiBold" Width="44"/></StackPanel>
+      <StackPanel x:Name="sClock" Orientation="Horizontal"><Border x:Name="dClock" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="oClock" Foreground="White" Width="40"/></StackPanel>
     </StackPanel>
   </Border>
   </Grid>
 </Window>
 "@
-$osdKeys = @('Cpu', 'Gpu', 'Ram', 'Net', 'TopC', 'TopR', 'Batt', 'Clock')
-$osdLabels = [ordered]@{ Cpu = 'CPU'; Gpu = 'GPU'; Ram = 'RAM'; Net = 'Network'; TopC = 'Top CPU app'; TopR = 'Top RAM app'; Batt = 'Battery'; Clock = 'Clock' }
+
+$osdKeys = @('Cpu', 'Gpu', 'Ram', 'Graph', 'Net', 'TopC', 'TopR', 'Batt', 'Clock')
+$osdLabels = [ordered]@{ Cpu = 'CPU'; Gpu = 'GPU'; Ram = 'RAM'; Graph = 'Mini graph'; Net = 'Network'; TopC = 'Top CPU app'; TopR = 'Top RAM app'; Batt = 'Battery'; Clock = 'Clock' }
 $posNames = @('Top left', 'Top center', 'Top right', 'Bottom left', 'Bottom right', 'Custom', 'Bottom center')
 $posOrder = @(0, 1, 2, 3, 6, 4, 5)   # order shown in Settings / cycled by Ctrl+Alt+P
 $script:osds = @()
@@ -485,8 +500,14 @@ function Place-Osd($o) {
     if ([Math]::Abs($w.Top - $y) -gt 0.5) { $w.Top = $y }
 }
 function Apply-OsdMetrics($o) {
-    foreach ($k in $osdKeys) { $o.Seg[$k].Visibility = if ($cfg.OsdShow.$k) { 'Visible' } else { 'Collapsed' } }
-    $o.Seg.Clock.Width = if ($cfg.Clock24) { 40 } else { 62 }   # fixed width = bar never changes size
+    $first = $true
+    foreach ($k in $osdKeys) {
+        $on = [bool]$cfg.OsdShow.$k
+        $o.Seg[$k].Visibility = if ($on) { 'Visible' } else { 'Collapsed' }
+        $o.Div[$k].Visibility = if ($on -and -not $first) { 'Visible' } else { 'Collapsed' }   # no divider before the first item
+        if ($on) { $first = $false }
+    }
+    $o.Clock.Width = if ($cfg.Clock24) { 38 } else { 58 }   # fixed widths = bar never changes size
     Apply-OsdLook $o
 }
 function Build-Osds {
@@ -499,7 +520,7 @@ function Build-Osds {
         $h = Win-Handle $w
         [LhNative]::MakeOverlay($h)
         $w.Left = $sc.WorkingArea.Left / $dpi; $w.Top = $sc.WorkingArea.Top / $dpi
-        $seg = @{}; foreach ($k in $osdKeys) { $seg[$k] = $w.FindName("s$k") }
+        $seg = @{}; $div = @{}; foreach ($k in $osdKeys) { $seg[$k] = $w.FindName("s$k"); $div[$k] = $w.FindName("d$k") }
         $w.Add_SizeChanged({ param($sn, $e); foreach ($oo in $script:osds) { if ($oo.Win -eq $sn) { Place-Osd $oo } } })
         $w.Add_MouseLeftButtonDown({
             param($sn, $e)
@@ -507,7 +528,10 @@ function Build-Osds {
             try { $sn.DragMove() } catch {}
             Save-OsdSpot $sn
         })
-        $o = @{ Win = $w; H = $h; Screen = $sc; Seg = $seg; Bg = $w.FindName('oBg'); Body = $w.FindName('oContent'); Cpu = $w.FindName('oCpu'); Gpu = $w.FindName('oGpu'); Ram = $w.FindName('oRam') }
+        $o = @{ Win = $w; H = $h; Screen = $sc; Seg = $seg; Div = $div; Bg = $w.FindName('oBg'); Halo = $w.FindName('oHalo'); Body = $w.FindName('oContent'); Pad = $w.FindName('oPad')
+                Cpu = $w.FindName('oCpu'); Gpu = $w.FindName('oGpu'); Ram = $w.FindName('oRam'); Down = $w.FindName('oDown'); Up = $w.FindName('oUp')
+                TopCName = $w.FindName('oTopCName'); TopCVal = $w.FindName('oTopCVal'); TopRName = $w.FindName('oTopRName'); TopRVal = $w.FindName('oTopRVal')
+                Batt = $w.FindName('oBatt'); Clock = $w.FindName('oClock'); LineCpu = $w.FindName('oLineCpu'); LineRam = $w.FindName('oLineRam') }
         Apply-OsdMetrics $o
         $w.Show(); $w.UpdateLayout()
         Place-Osd $o
@@ -561,10 +585,12 @@ function Apply-OsdLook($o) {
     $o.Win.Opacity = 1; $o.Bg.Opacity = 1
     if ($cfg.Look -eq 'Solid') {
         $o.Bg.Background = $solidFill; $o.Bg.BorderBrush = $osdEdge; $o.Bg.BorderThickness = 1
-        $o.Body.Effect = $null
+        $o.Halo.Visibility = 'Collapsed'
+        $o.Body.Effect = $null; $o.Pad.Effect = $null
     } else {
         $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdge; $o.Bg.BorderThickness = 1
-        $o.Body.Effect = $textShadow
+        $o.Halo.Visibility = 'Visible'   # dark ring outside the white frame: visible on light AND dark wallpapers
+        $o.Body.Effect = $textShadow; $o.Pad.Effect = $textHalo
     }
 }
 function Apply-Look {
@@ -572,12 +598,12 @@ function Apply-Look {
         $g = $script:ui.Glass
         if ($cfg.Look -eq 'Solid') {
             $g.Background = $solidFill; $g.BorderBrush = $script:edgeSolid; $g.BorderThickness = 1.2
-            $script:ui.Sheen.Visibility = 'Visible'
-            $script:ui.Content.Effect = $null
+            $script:ui.Sheen.Visibility = 'Visible'; $script:ui.Halo.Visibility = 'Collapsed'
+            $script:ui.Content.Effect = $null; $script:ui.ContentWrap.Effect = $null
         } else {
             $g.Background = $hitFill; $g.BorderBrush = $outlineEdge; $g.BorderThickness = 1   # 1% fill so it can still be dragged
-            $script:ui.Sheen.Visibility = 'Collapsed'
-            $script:ui.Content.Effect = $textShadow
+            $script:ui.Sheen.Visibility = 'Collapsed'; $script:ui.Halo.Visibility = 'Visible'
+            $script:ui.Content.Effect = $textShadow; $script:ui.ContentWrap.Effect = $textHalo
         }
     }
     foreach ($o in $script:osds) { Apply-OsdLook $o }
@@ -953,14 +979,16 @@ function Fmt-Bytes([double]$b) {
 }
 $histCpu = New-Object System.Collections.Generic.List[double]
 $histGpu = New-Object System.Collections.Generic.List[double]
-function Draw-Line($line, $hist) {
+function Draw-Line($line, $hist, [double]$wd = 260, [double]$ht = 52, [int]$max = 60) {
     $pc = New-Object Windows.Media.PointCollection($hist.Count)
-    $n = $hist.Count; $step = 260.0 / 59
+    $n = $hist.Count; $step = $wd / ($max - 1); $pad = 2; $scale = ($ht - 2 * $pad) / 100
     for ($i = 0; $i -lt $n; $i++) {
-        $pc.Add((New-Object Windows.Point(((60 - $n + $i) * $step), (48 - ([Math]::Min(100, $hist[$i]) * 0.44)))))
+        $pc.Add((New-Object Windows.Point((($max - $n + $i) * $step), ($ht - $pad - ([Math]::Min(100, $hist[$i]) * $scale)))))
     }
     $pc.Freeze(); $line.Points = $pc
 }
+$histOC = New-Object System.Collections.Generic.List[double]
+$histOR = New-Object System.Collections.Generic.List[double]
 $ease = New-Object Windows.Media.Animation.CubicEase; $ease.EasingMode = 'EaseOut'; $ease.Freeze()
 $barLast = @{}
 function Set-Bar($bar, [double]$pct) {
@@ -998,15 +1026,23 @@ $timer.Add_Tick({
     $ramTxt = '{0:N0}%' -f $ramPct
     $netTxt = if ($null -ne $d.Down) { '{0} {1}/s  {2} {3}/s' -f $arrowDown, (Fmt-Bytes $d.Down), $arrowUp, (Fmt-Bytes $d.Up) } else { '' }
 
+    $osdGraph = $cfg.Overlay -and $cfg.OsdShow.Graph
+    if ($osdGraph) {
+        $histOC.Add($d.Cpu); $histOR.Add($ramPct)
+        while ($histOC.Count -gt 30) { $histOC.RemoveAt(0); $histOR.RemoveAt(0) }
+    }
+    $downTxt = if ($null -ne $d.Down) { (Fmt-Bytes $d.Down) + '/s' } else { '' }
+    $upTxt = if ($null -ne $d.Up) { (Fmt-Bytes $d.Up) + '/s' } else { '' }
     foreach ($o in $script:osds) {
         Set-Text $o.Cpu $cpuTxt; $o.Cpu.Foreground = if ($d.Cpu -gt 85) { $hot } else { $white }
         Set-Text $o.Gpu $gpuTxt
         Set-Text $o.Ram $ramTxt; $o.Ram.Foreground = if ($ramPct -gt 85) { $hot } else { $white }
-        Set-Text $o.Seg.Net $netTxt
-        Set-Text $o.Seg.TopC $(if ($d.TopC) { $d.TopC } else { '' })
-        Set-Text $o.Seg.TopR $(if ($d.TopR) { '{0}  {1}' -f $d.TopR, (Fmt-Bytes $d.TopRBytes) } else { '' })
-        Set-Text $o.Seg.Batt $(if ($null -eq $d.NoBatt -or $d.NoBatt) { '' } else { ('{0:N0}%' -f $d.Batt) + $(if ($d.Charging) { ' ' + [char]0x26A1 } else { '' }) })
-        Set-Text $o.Seg.Clock $clock
+        Set-Text $o.Down $downTxt; Set-Text $o.Up $upTxt
+        if ($d.TopCName) { Set-Text $o.TopCName $d.TopCName; Set-Text $o.TopCVal ('{0:N0}%' -f $d.TopCPct) }
+        if ($d.TopR) { Set-Text $o.TopRName $d.TopR; Set-Text $o.TopRVal (Fmt-Bytes $d.TopRBytes) }
+        Set-Text $o.Batt $(if ($null -eq $d.NoBatt -or $d.NoBatt) { '' } else { ('{0:N0}%' -f $d.Batt) + $(if ($d.Charging) { ' ' + [char]0x26A1 } else { '' }) })
+        Set-Text $o.Clock $clock
+        if ($osdGraph) { Draw-Line $o.LineCpu $histOC 56 18 30; Draw-Line $o.LineRam $histOR 56 18 30 }
         Place-Osd $o
         [LhNative]::Top($o.H)
     }
