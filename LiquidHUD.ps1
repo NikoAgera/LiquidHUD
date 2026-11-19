@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v11 -  glass system monitor widget + game overlay for Windows
+#  LiquidHUD v12 -  glass system monitor widget + game overlay for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -109,6 +109,9 @@ public class LhHotkeys : System.Windows.Forms.NativeWindow, IDisposable {
 }
 "@
 [LhNative]::HideConsole()
+# Small, mostly-static layered windows are cheaper to draw on the CPU than through Direct3D:
+# no D3D device (~100+ MB), no GPU->CPU copy of every frame.
+try { [Windows.Media.RenderOptions]::ProcessRenderMode = [Windows.Interop.RenderMode]::SoftwareOnly } catch {}
 try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch {}
 
 
@@ -231,7 +234,7 @@ $collector = {
 
             # GPU counters are the most expensive -> only when enabled
             if ($w.Gpu) {
-                if (-not $gpuFresh -or $gpuSw.Elapsed.TotalSeconds -ge 30) { Refresh-Gpu; $gpuSw.Restart(); $gpuFresh = $true }
+                if (-not $gpuFresh -or $gpuSw.Elapsed.TotalSeconds -ge 60) { Refresh-Gpu; $gpuSw.Restart(); $gpuFresh = $true }
                 $g = 0.0
                 foreach ($c in $script:gpuC) { try { $g += $c.NextValue() } catch {} }
                 $n.Gpu = if ($script:gpuC.Count) { [Math]::Min(100, $g) } else { -1 }
@@ -267,7 +270,7 @@ $collector = {
             }
 
             # Top apps: scan processes every 5s, only when enabled
-            if (($w.TopC -or $w.TopR) -and $procSw.Elapsed.TotalSeconds -ge 5) {
+            if (($w.TopC -or $w.TopR) -and $procSw.Elapsed.TotalSeconds -ge 8) {
                 $el = $procSw.Elapsed.TotalSeconds; $procSw.Restart()
                 $cpuBy = @{}; $ramBy = @{}; $cur = @{}
                 foreach ($p in [Diagnostics.Process]::GetProcesses()) {
@@ -299,6 +302,7 @@ $collector = {
             $n.SelfCpu = ($st - $selfPrev) / ($se * $cores) * 100; $selfPrev = $st
             $n.SelfRam = $self.WorkingSet64
             $n.SelfPriv = $self.PrivateMemorySize64
+            $n.SelfWs = $self.WorkingSet64
 
             $sync.Data = $n
 
@@ -351,6 +355,18 @@ function Info($id, $label) {
 
 $bc = New-Object Windows.Media.BrushConverter
 function Brush($hex) { $b = $bc.ConvertFromString($hex); $b.Freeze(); $b }
+# keep a window fully inside the work area of the monitor its centre is on
+function Clamp-ToScreen($w) {
+    $sc = [System.Windows.Forms.Screen]::FromHandle((Win-Handle $w)).WorkingArea
+    $k = $script:dpi
+    try { $k = [Windows.PresentationSource]::FromVisual($w).CompositionTarget.TransformToDevice.M11 } catch {}
+    if (-not $k) { $k = 1 }
+    $L = $sc.Left / $k; $T = $sc.Top / $k; $R = $sc.Right / $k; $B = $sc.Bottom / $k
+    $ww = $w.ActualWidth; $hh = $w.ActualHeight
+    $x = [Math]::Max($L, [Math]::Min($w.Left, $R - $ww)); $y = [Math]::Max($T, [Math]::Min($w.Top, $B - $hh))
+    if ($x -ne $w.Left) { $w.Left = $x }
+    if ($y -ne $w.Top) { $w.Top = $y }
+}
 function Win-Handle($w) { (New-Object Windows.Interop.WindowInteropHelper($w)).EnsureHandle() }
 
 function Disk-Rows {
@@ -470,12 +486,13 @@ function Build-Widget {
         param($s, $e)
         if ($e.ClickCount -ge 2) { Start-Process taskmgr.exe; return }
         try { $script:win.DragMove() } catch {}
+        Clamp-ToScreen $script:win
         $cfg.Left = $script:win.Left; $cfg.Top = $script:win.Top; Save-Cfg
     })
     if ($script:menu) { $w.ContextMenu = $script:menu }
     Apply-Look
     Apply-RowVisibility
-    if (-not $cfg.WidgetHidden) { $w.Show() }
+    if (-not $cfg.WidgetHidden) { $w.Show(); $w.UpdateLayout(); Clamp-ToScreen $w }
 }
 
 # =====================================================================
@@ -576,6 +593,7 @@ function Build-Osds {
             param($sn, $e)
             if (-not $cfg.OverlayFree) { return }
             try { $sn.DragMove() } catch {}
+            Clamp-ToScreen $sn
             Save-OsdSpot $sn
         })
         $o = @{ Win = $w; H = $h; Screen = $sc; Seg = $seg; Div = $div; Bg = $w.FindName('oBg'); Halo = $w.FindName('oHalo'); Body = $w.FindName('oContent'); Pad = $w.FindName('oPad')
@@ -658,6 +676,7 @@ function Apply-AutoHide {
     foreach ($o in $script:osds) { Set-OsdCollapsed $o $on }
     if ($on) { $hoverTimer.Start() } else { $hoverTimer.Stop() }
 }
+$script:watchN = 0
 $watchTimer = New-Object Windows.Threading.DispatcherTimer
 $watchTimer.Interval = [TimeSpan]::FromSeconds(1)
 $watchTimer.Add_Tick({
@@ -667,7 +686,9 @@ $watchTimer.Add_Tick({
         $fs = [bool]($cfg.GameMode -and [LhNative]::FullscreenForeground([uint32]$PID))
         if ($fs -ne $script:inFullscreen) { $script:inFullscreen = $fs; Apply-AutoHide }
         # 2) adaptive ink: sample an 8 px strip right next to the bar (never the bar itself)
+        $script:watchN++
         if ($cfg.Look -eq 'Outline' -and $cfg.AdaptiveInk) {
+            if ($script:watchN % 2) { return }   # brightness every 2 s is plenty
             foreach ($o in $script:osds) {
                 $rc = [LhNative]::Rect($o.H); $wd = $rc[2] - $rc[0]; $gap = [int](3 * $script:dpi); $hgt = [int](8 * $script:dpi)
                 $y = if (@(3, 4, 6) -contains [int]$cfg.OverlayPos) { $rc[1] - $gap - $hgt } else { $rc[3] + $gap }
@@ -685,7 +706,7 @@ function Apply-HandleInk($o) {
     if ($o.Dark) { $o.Handle.Background = $pillDark; $o.Handle.BorderBrush = $haloLight } else { $o.Handle.Background = $pillLight; $o.Handle.BorderBrush = $haloDark }
 }
 $hoverTimer = New-Object Windows.Threading.DispatcherTimer
-$hoverTimer.Interval = [TimeSpan]::FromMilliseconds(70)
+$hoverTimer.Interval = [TimeSpan]::FromMilliseconds(100)
 $hoverTimer.Add_Tick({
     try {
         $p = [System.Windows.Forms.Cursor]::Position
@@ -1179,12 +1200,9 @@ $ease = New-Object Windows.Media.Animation.CubicEase; $ease.EasingMode = 'EaseOu
 $barLast = @{}
 function Set-Bar($bar, [double]$pct) {
     $wd = [Math]::Round([Math]::Max(0, [Math]::Min(100, $pct)) * 2.6)
-    if ($barLast[$bar.Name] -eq $wd) { return }        # no change = no animation = cheaper
+    if ($barLast[$bar.Name] -eq $wd) { return }        # no change = no redraw
     $barLast[$bar.Name] = $wd
-    $a = New-Object Windows.Media.Animation.DoubleAnimation($wd, [TimeSpan]::FromMilliseconds(600))
-    $a.EasingFunction = $ease
-    $a.Freeze()
-    $bar.BeginAnimation([Windows.FrameworkElement]::WidthProperty, $a)
+    $bar.Width = $wd                                    # instant: animations re-render the whole layered window at 60 fps
 }
 function Set-Text($tb, $txt) { if ($tb.Text -ne $txt) { $tb.Text = $txt } }
 $white = Brush '#FFFFFF'; $hot = Brush '#F09595'
@@ -1295,7 +1313,7 @@ $timer.Add_Tick({
     }
 
     if ($script:sWin -and $script:sWin.IsVisible) {
-        Set-Text $script:sUi.sSelf ('{0:N0} MB RAM   |   {1:N1}% CPU' -f ($d.SelfPriv / 1MB), [Math]::Max(0, $d.SelfCpu))
+        Set-Text $script:sUi.sSelf ('{0:N0} MB RAM in use  ({1:N0} MB reserved)   |   {2:N1}% CPU' -f ($d.SelfWs / 1MB), ($d.SelfPriv / 1MB), [Math]::Max(0, $d.SelfCpu))
     }
   } catch {}
 })
