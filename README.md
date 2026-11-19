@@ -15,10 +15,10 @@ No Rainmeter, no HWiNFO, no installer, no admin rights. One `.ps1` file.
 |---|---|
 | **Live stats** | CPU, GPU, RAM, disk C:, network up/down, battery, uptime, top CPU app, top RAM app, clock |
 | **60-second graph** | CPU and GPU history |
-| **Real glass** | Windows 11 Acrylic or Mica blur drawn by the OS, with rounded corners and a native shadow |
+| **Clear or glass** | *Clear* gives real see-through transparency down to 0 %. *Acrylic* and *Mica* give the Windows 11 blur |
 | **Game overlay** | Thin click-through bar that stays on top of every app, on every monitor |
 | **Global hotkeys** | Work while you're in a game |
-| **Opacity sliders** | One for the widget, one for the overlay |
+| **Background sliders** | One for the widget, one for the overlay. At 0 % only the text is left, with a shadow so it stays readable |
 | **Pick your metrics** | Tick what you want to see. Unticked metrics aren't collected at all |
 | **Lightweight** | Runs at BelowNormal priority with a 2 s refresh and periodic memory trim |
 | **Status pill** | Shows `chill` below 40 % CPU, `busy` from 40–85 %, and `hot!` above 85 % (numbers also turn red) |
@@ -94,13 +94,14 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\LiquidHUD.ps1
 
 | Setting | What it does |
 |---|---|
-| **Widget opacity** | Slide left to fade the widget, slide right to make it solid |
-| **Game overlay opacity** | Same, for the overlay bar (20–100 %) |
+| **Widget background** | 0 % is fully see-through (text only), 100 % is solid |
+| **Game overlay background** | Same, for the overlay bar |
+| **Style** | **Clear** (default) gives real transparency. **Acrylic blur** and **Mica** give the Windows 11 frosted glass. Blur always keeps some grey tint, so use Clear if you want it fully see-through |
 | **What to monitor** | Tick a metric to show and collect it. Untick it to hide it and stop collecting it |
 | **Refresh rate** | 1 s, 2 s or 5 s. Slower uses less CPU |
 | **LiquidHUD itself is using** | Live RAM and CPU used by the widget itself |
 
-![Opacity at 25%, 65% and 100%](docs/images/opacity.png)
+![Clear style with the background at 0%, 45% and 100%](docs/images/opacity.png)
 
 Settings are saved to `%APPDATA%\LiquidHUD\settings.json`.
 
@@ -143,7 +144,7 @@ The overlay is **click-through**: your mouse goes straight to the game, and it n
 |  BelowNormal priority        |  ---------------------->  |  DispatcherTimer        |
 |                              |                           |                         |
 |  PerformanceCounter (CPU,GPU)|                           |  Widget window          |
-|  ComputerInfo (RAM)          |                           |   (DWM Acrylic/Mica)    |
+|  ComputerInfo (RAM)          |                           |   (Clear / Acrylic)     |
 |  DriveInfo (disk)            |                           |  Overlay window(s)      |
 |  NetworkInterface (net)      |                           |   (layered, click-thru) |
 |  PowerStatus (battery)       |                           |  Settings window        |
@@ -151,7 +152,8 @@ The overlay is **click-through**: your mouse goes straight to the game, and it n
 +------------------------------+                           +-------------------------+
 ```
 
-- **Glass:** `DwmSetWindowAttribute` with `DWMWA_SYSTEMBACKDROP_TYPE` (Acrylic = 3, Mica = 2), rounded corners and dark mode. The window isn't a layered window, so dragging stays smooth.
+- **Clear style:** a per-pixel-alpha (layered) WPF window, so the background can fade all the way to 0 %. It stays at 1 % alpha so you can still drag it.
+- **Acrylic / Mica style:** `DwmSetWindowAttribute` with `DWMWA_SYSTEMBACKDROP_TYPE` (Acrylic = 3, Mica = 2), rounded corners and dark mode. Switching style rebuilds the window on the fly.
 - **Overlay:** a layered window with the extended styles `WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`. LiquidHUD calls `SetWindowPos(HWND_TOPMOST)` every tick so the overlay stays on top.
 - **Hotkeys:** `RegisterHotKey` on a hidden message window.
 - **Low cost:**
@@ -179,7 +181,8 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 |---|---|
 | **Nothing happens** when I double-click the `.bat` | Run Step 3 (Unblock). Then try the manual command from Step 4 in a PowerShell window so you can see any error |
 | **I want to quit, but the widget is hidden** | Press `Ctrl+Alt+H` to show it, then right-click and choose **Exit**. Or open Task Manager and end **Windows PowerShell** |
-| **No blur, just dark glass** | You're on Windows 10 or Windows 11 older than 22H2. Also check **Settings → Personalization → Colors → Transparency effects** is **On** |
+| **I want blur, not clear** | Open Settings and set **Style** to **Acrylic blur** or **Mica**. This needs Windows 11 22H2 or newer, with **Settings → Personalization → Colors → Transparency effects** turned **On** |
+| **The widget looks grey when I lower the slider** | That's the Windows blur tint in Acrylic or Mica style. Switch **Style** to **Clear** |
 | **GPU shows `n/a`** | Your GPU driver doesn't expose the `GPU Engine` counters. Update your graphics driver |
 | **Overlay not visible in a game** | Switch the game to Borderless or Windowed Fullscreen |
 | **The overlay is in the wrong spot on a second monitor** | Mixed DPI scaling across monitors can offset it. Untick **Overlay on all monitors** to keep it on the main screen |
