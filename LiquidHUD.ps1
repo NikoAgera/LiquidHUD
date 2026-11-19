@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v9  -  glass system monitor widget + game overlay for Windows
+#  LiquidHUD v10 -  glass system monitor widget + game overlay for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -99,7 +99,7 @@ $cfgFile = Join-Path $cfgDir 'settings.json'
 if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir | Out-Null }
 $showDefault = [ordered]@{}; foreach ($k in $metrics.Keys) { $showDefault[$k] = $true }
 $cfg = [pscustomobject]@{
-    Left = -1; Top = 40; Topmost = $false; Look = 'Outline'; Overlay = $false; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayX = 0.98; OverlayY = 0.01
+    Left = -1; Top = 40; Topmost = $false; Look = 'Outline'; Overlay = $false; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayAutoHide = $true; OverlayX = 0.98; OverlayY = 0.01
     WidgetHidden = $false; Interval = 2; Clock24 = $true
     Show = [pscustomobject]$showDefault
     OsdShow = [pscustomobject][ordered]@{ Cpu = $true; Gpu = $true; Ram = $true; Net = $true; TopC = $true; TopR = $false; Batt = $false; Graph = $true; Clock = $true }
@@ -445,6 +445,8 @@ $osdXaml = @"
         SizeToContent="WidthAndHeight" ResizeMode="NoResize"
         FontFamily="Segoe UI Variable Display, Segoe UI" UseLayoutRounding="True">
   <Grid Margin="1">
+  <Border x:Name="oHandle" Width="110" Height="5" CornerRadius="2.5" Background="#E6FFFFFF" BorderBrush="#73000000" BorderThickness="0.6" Visibility="Collapsed" Margin="6,3,6,3"/>
+  <Grid x:Name="oFull">
   <Border x:Name="oHalo" CornerRadius="12" Margin="-1" BorderThickness="1" BorderBrush="#66000000"/>
   <Border x:Name="oBg" CornerRadius="11" Background="#F00C0E16" BorderBrush="#40FFFFFF" BorderThickness="1"/>
   <Border x:Name="oPad" Padding="10,4,11,5">
@@ -465,6 +467,7 @@ $osdXaml = @"
     </StackPanel>
   </Border>
   </Grid>
+  </Grid>
 </Window>
 "@
 
@@ -481,7 +484,7 @@ function Place-Osd($o) {
     if ($cfg.OverlayFree) { return }     # user is dragging it around
     $w = $o.Win; $a = $o.Screen.WorkingArea
     $L = $a.Left / $dpi; $T = $a.Top / $dpi; $R = $a.Right / $dpi; $B = $a.Bottom / $dpi
-    $ww = $w.ActualWidth; $hh = $w.ActualHeight; $m = 10
+    $ww = $w.ActualWidth; $hh = $w.ActualHeight; $m = if ($o.Collapsed) { 3 } else { 10 }
     switch ([int]$cfg.OverlayPos) {
         0 { $x = $L + $m; $y = $T + $m }
         1 { $x = ($L + $R - $ww) / 2; $y = $T + $m }
@@ -513,7 +516,7 @@ function Apply-OsdMetrics($o) {
 function Build-Osds {
     foreach ($o in $script:osds) { try { $o.Win.Close() } catch {} }
     $script:osds = @()
-    if (-not $cfg.Overlay) { return }
+    if (-not $cfg.Overlay) { $hoverTimer.Stop(); return }
     $screens = if ($cfg.OverlayAll) { [System.Windows.Forms.Screen]::AllScreens } else { @([System.Windows.Forms.Screen]::PrimaryScreen) }
     foreach ($sc in $screens) {
         $w = [Windows.Markup.XamlReader]::Parse($osdXaml)
@@ -531,13 +534,15 @@ function Build-Osds {
         $o = @{ Win = $w; H = $h; Screen = $sc; Seg = $seg; Div = $div; Bg = $w.FindName('oBg'); Halo = $w.FindName('oHalo'); Body = $w.FindName('oContent'); Pad = $w.FindName('oPad')
                 Cpu = $w.FindName('oCpu'); Gpu = $w.FindName('oGpu'); Ram = $w.FindName('oRam'); Down = $w.FindName('oDown'); Up = $w.FindName('oUp')
                 TopCName = $w.FindName('oTopCName'); TopCVal = $w.FindName('oTopCVal'); TopRName = $w.FindName('oTopRName'); TopRVal = $w.FindName('oTopRVal')
-                Batt = $w.FindName('oBatt'); Clock = $w.FindName('oClock'); LineCpu = $w.FindName('oLineCpu'); LineRam = $w.FindName('oLineRam') }
+                Batt = $w.FindName('oBatt'); Clock = $w.FindName('oClock'); LineCpu = $w.FindName('oLineCpu'); LineRam = $w.FindName('oLineRam')
+                Full = $w.FindName('oFull'); Handle = $w.FindName('oHandle'); Collapsed = $false; LeaveAt = $null }
         Apply-OsdMetrics $o
         $w.Show(); $w.UpdateLayout()
         Place-Osd $o
         $script:osds += $o
     }
     Apply-Free
+    Apply-AutoHide
 }
 # remember where the user dropped the overlay (fraction of that monitor)
 function Save-OsdSpot($w) {
@@ -567,14 +572,63 @@ function Apply-Free {
         }
     }
 }
+function Set-AutoHide($on) { $cfg.OverlayAutoHide = [bool]$on; Save-Cfg; Apply-AutoHide; Sync-Settings; if ($mi) { Refresh-Menu } }
 function Set-Free($on) {
     if ($on -and -not $cfg.Overlay) { $cfg.Overlay = $true; Build-Osds }
     $cfg.OverlayFree = [bool]$on
     Apply-Free
+    Apply-AutoHide
     Save-Cfg
     Sync-Settings
     if ($mi) { Refresh-Menu }
 }
+
+# =====================================================================
+#  AUTO-HIDE (iPhone-style): thin pill at the edge, hover to expand
+#  The overlay stays click-through; we just poll the cursor (every 70 ms,
+#  only while auto-hide is active) and compare it to the overlay's rectangle.
+# =====================================================================
+function AutoHide-Active { $cfg.Overlay -and $cfg.OverlayAutoHide -and -not $cfg.OverlayFree -and [int]$cfg.OverlayPos -ne 5 }
+$fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 1.0, [TimeSpan]::FromMilliseconds(160))
+$ease0 = New-Object Windows.Media.Animation.CubicEase; $ease0.EasingMode = 'EaseOut'; $fadeIn.EasingFunction = $ease0; $fadeIn.Freeze()
+function Set-OsdCollapsed($o, [bool]$c) {
+    if ($o.Collapsed -eq $c) { return }
+    $o.Collapsed = $c; $o.LeaveAt = $null
+    if ($c) {
+        $o.Full.Visibility = 'Collapsed'; $o.Handle.Visibility = 'Visible'
+    } else {
+        $o.Handle.Visibility = 'Collapsed'; $o.Full.Visibility = 'Visible'
+        $o.Full.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeIn)
+    }
+    Apply-OsdLook $o
+    $o.Win.UpdateLayout(); Place-Osd $o
+}
+function Apply-AutoHide {
+    $on = AutoHide-Active
+    foreach ($o in $script:osds) { Set-OsdCollapsed $o $on }
+    if ($on) { $hoverTimer.Start() } else { $hoverTimer.Stop() }
+}
+$hoverTimer = New-Object Windows.Threading.DispatcherTimer
+$hoverTimer.Interval = [TimeSpan]::FromMilliseconds(70)
+$hoverTimer.Add_Tick({
+    try {
+        $p = [System.Windows.Forms.Cursor]::Position
+        foreach ($o in $script:osds) {
+            $w = $o.Win
+            $L = $w.Left * $dpi; $T = $w.Top * $dpi; $R = $L + $w.ActualWidth * $dpi; $B = $T + $w.ActualHeight * $dpi
+            # generous hot zone around the thin pill, a small grace margin around the full bar
+            if ($o.Collapsed) { $dx = 24 * $dpi; $dy = 12 * $dpi } else { $dx = 10 * $dpi; $dy = 10 * $dpi }
+            $inside = ($p.X -ge $L - $dx) -and ($p.X -le $R + $dx) -and ($p.Y -ge $T - $dy) -and ($p.Y -le $B + $dy)
+            if ($inside) {
+                $o.LeaveAt = $null
+                if ($o.Collapsed) { Set-OsdCollapsed $o $false }
+            } elseif (-not $o.Collapsed) {
+                if (-not $o.LeaveAt) { $o.LeaveAt = [DateTime]::Now.AddMilliseconds(450) }
+                elseif ([DateTime]::Now -ge $o.LeaveAt) { Set-OsdCollapsed $o $true }
+            }
+        }
+    } catch {}
+})
 
 # =====================================================================
 #  LOOK (Outline / Solid) + METRIC VISIBILITY
@@ -589,7 +643,7 @@ function Apply-OsdLook($o) {
         $o.Body.Effect = $null; $o.Pad.Effect = $null
     } else {
         $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdge; $o.Bg.BorderThickness = 1
-        $o.Halo.Visibility = 'Visible'   # dark ring outside the white frame: visible on light AND dark wallpapers
+        $o.Halo.Visibility = if ($o.Collapsed) { 'Collapsed' } else { 'Visible' }   # dark ring outside the white frame: visible on light AND dark wallpapers
         $o.Body.Effect = $textShadow; $o.Pad.Effect = $textHalo
     }
 }
@@ -701,6 +755,7 @@ $settingsXaml = @"
       <TextBlock Style="{StaticResource Head}" Text="Overlay position"/>
       <WrapPanel x:Name="sPos"/>
       <CheckBox x:Name="sFree" Width="300" Margin="0,6,0,0" Content="Free move  (drag the overlay, untick to lock it)"/>
+      <CheckBox x:Name="sAuto" Width="300" Margin="0,0,0,0" Content="Auto-hide  (thin bar, hover to show)"/>
 
       <TextBlock Style="{StaticResource Head}" Text="Clock"/>
       <StackPanel Orientation="Horizontal">
@@ -750,6 +805,7 @@ function Sync-Settings {
     $s.sNone.Visibility = if ($cfg.WidgetHidden -and -not $cfg.Overlay) { 'Visible' } else { 'Collapsed' }
     $s.sLO.IsChecked = ($cfg.Look -ne 'Solid'); $s.sLS.IsChecked = ($cfg.Look -eq 'Solid')
     $s.sFree.IsChecked = [bool]$cfg.OverlayFree
+    $s.sAuto.IsChecked = [bool]$cfg.OverlayAutoHide
     $s.sC24.IsChecked = [bool]$cfg.Clock24; $s.sC12.IsChecked = -not [bool]$cfg.Clock24
     Sync-PosRadios
 }
@@ -763,6 +819,7 @@ function Sync-PosRadios { if ($script:posRadios) { foreach ($rb in $script:posRa
 function Set-Pos($i) {
     if ($cfg.OverlayFree) { $cfg.OverlayFree = $false; Apply-Free; if ($script:sUi) { $script:sUi.sFree.IsChecked = $false } }
     $cfg.OverlayPos = $i; Save-Cfg
+    Apply-AutoHide
     foreach ($o in $script:osds) { Place-Osd $o }
     Sync-PosRadios; Refresh-Menu
 }
@@ -799,7 +856,7 @@ function Open-Settings {
     $sw = [Windows.Markup.XamlReader]::Parse($settingsXaml)
     $script:sWin = $sw
     $script:sUi = @{}
-    foreach ($n in 'sRoot','sClose','sChecks','sR1','sR2','sR5','sSelf','sPos','sFree','sDisks','sShowW','sShowO','sNone','sLO','sLS','sC24','sC12','sOsdChecks') { $script:sUi[$n] = $sw.FindName($n) }
+    foreach ($n in 'sRoot','sClose','sChecks','sR1','sR2','sR5','sSelf','sPos','sFree','sAuto','sDisks','sShowW','sShowO','sNone','sLO','sLS','sC24','sC12','sOsdChecks') { $script:sUi[$n] = $sw.FindName($n) }
     $s = $script:sUi
 
     $s.sShowW.Add_Click({ if ([bool]$this.IsChecked -eq [bool]$cfg.WidgetHidden) { Toggle-Widget } })
@@ -825,6 +882,7 @@ function Open-Settings {
     }
     $s.sFree.IsChecked = [bool]$cfg.OverlayFree
     $s.sFree.Add_Click({ Set-Free ([bool]$this.IsChecked) })
+    $s.sAuto.Add_Click({ Set-AutoHide ([bool]$this.IsChecked) })
 
     foreach ($k in $osdLabels.Keys) {
         $cb = New-Object Windows.Controls.CheckBox
@@ -891,6 +949,7 @@ $menuXaml = @"
   <MenuItem x:Name="mOverlay"  Header="Game overlay" InputGestureText="Ctrl+Alt+O"/>
   <MenuItem x:Name="mPos"      Header="Overlay position" InputGestureText="Ctrl+Alt+P"/>
   <MenuItem x:Name="mFree"     Header="Free move overlay" InputGestureText="Ctrl+Alt+M"/>
+  <MenuItem x:Name="mAuto"     Header="Auto-hide overlay"/>
   <MenuItem x:Name="mAll"      Header="Overlay on all monitors"/>
   <MenuItem x:Name="mHide"     Header="Big widget" InputGestureText="Ctrl+Alt+H"/>
   <MenuItem x:Name="mLook"     Header="Look: Outline"/>
@@ -903,13 +962,14 @@ $menuXaml = @"
 $script:menu = [Windows.Markup.XamlReader]::Parse($menuXaml)
 $menu = $script:menu
 $mi = @{}
-foreach ($n in 'mSettings','mOverlay','mPos','mFree','mAll','mHide','mLook','mTop','mStartup','mTask','mExit') { $mi[$n] = $menu.FindName($n) }
+foreach ($n in 'mSettings','mOverlay','mPos','mFree','mAuto','mAll','mHide','mLook','mTop','mStartup','mTask','mExit') { $mi[$n] = $menu.FindName($n) }
 $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'LiquidHUD.lnk'
 
 function Refresh-Menu {
     $mi.mOverlay.IsChecked = [bool]$cfg.Overlay
     $mi.mAll.IsChecked = [bool]$cfg.OverlayAll
     $mi.mFree.IsChecked = [bool]$cfg.OverlayFree
+    $mi.mAuto.IsChecked = [bool]$cfg.OverlayAutoHide
     $mi.mPos.Header = 'Overlay position: ' + $posNames[[int]$cfg.OverlayPos]
     $mi.mTop.IsChecked = [bool]$cfg.Topmost
     $mi.mStartup.IsChecked = Test-Path $startupLnk
@@ -925,7 +985,7 @@ function Toggle-Widget {
     $sync.Want = Want-Table
 }
 function Quit-All {
-    $timer.Stop(); $sync.Stop = $true
+    $timer.Stop(); $hoverTimer.Stop(); $sync.Stop = $true
     $cfg.OverlayFree = $false
     $cfg.Left = $win.Left; $cfg.Top = $win.Top; Save-Cfg
     foreach ($o in $script:osds) { try { $o.Win.Close() } catch {} }
@@ -938,6 +998,7 @@ $mi.mSettings.Add_Click({ Open-Settings })
 $mi.mOverlay.Add_Click({ Toggle-Overlay })
 $mi.mPos.Add_Click({ Cycle-Pos })
 $mi.mFree.Add_Click({ Set-Free (-not $cfg.OverlayFree) })
+$mi.mAuto.Add_Click({ Set-AutoHide (-not $cfg.OverlayAutoHide) })
 $mi.mAll.Add_Click({ $cfg.OverlayAll = -not $cfg.OverlayAll; Save-Cfg; Build-Osds; Refresh-Menu })
 $mi.mHide.Add_Click({ Toggle-Widget })
 $mi.mLook.Add_Click({ Set-Look $(if ($cfg.Look -eq 'Solid') { 'Outline' } else { 'Solid' }) })
