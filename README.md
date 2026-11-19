@@ -13,12 +13,13 @@ No Rainmeter, no HWiNFO, no installer, no admin rights. One `.ps1` file.
 
 | | |
 |---|---|
-| **Live stats** | CPU, GPU, RAM, disk C:, network up/down, battery, uptime, top CPU app, top RAM app, clock |
+| **Live stats** | CPU, GPU, RAM, **every disk in your PC**, network up/down, battery, uptime, top CPU app, top RAM app, clock |
 | **60-second graph** | CPU and GPU history |
 | **Clear or glass** | *Clear* gives real see-through transparency down to 0 %. *Acrylic* and *Mica* give the Windows 11 blur |
 | **Game overlay** | Thin click-through bar that stays on top of every app, on every monitor |
 | **Global hotkeys** | Work while you're in a game |
-| **Background sliders** | One for the widget, one for the overlay. At 0 % only the text is left, with a shadow so it stays readable |
+| **Background sliders** | One for the widget, one for the overlay. At 0 % the widget keeps the text plus a faint ghost of its box, and the overlay keeps only the text, with a shadow so it stays readable |
+| **Pin or free-move the overlay** | Pin it to any corner or the top center, or drag it anywhere and lock it there |
 | **Pick your metrics** | Tick what you want to see. Unticked metrics aren't collected at all |
 | **Lightweight** | Runs at BelowNormal priority with a 2 s refresh and periodic memory trim |
 | **Status pill** | Shows `chill` below 40 % CPU, `busy` from 40–85 %, and `hot!` above 85 % (numbers also turn red) |
@@ -94,8 +95,11 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\LiquidHUD.ps1
 
 | Setting | What it does |
 |---|---|
-| **Widget background** | 0 % is fully see-through (text only), 100 % is solid |
-| **Game overlay background** | Same, for the overlay bar |
+| **Widget background** | 0 % keeps the text and a faint outline of the box. Slide right and the box fades in until it's solid at 100 % |
+| **Game overlay background** | 0 % is text only, 100 % is a solid bar |
+| **Overlay position** | Top left, Top center, Top right, Bottom left, Bottom right, or Custom (where you last dropped it) |
+| **Free move** | Tick it, then drag the overlay anywhere (it gets a dashed outline). Untick it and the overlay locks in place and goes back to click-through, so it never blocks what's behind it |
+| **Disks** | Every ready fixed or removable drive is listed with its label and size. Tick the ones you want on the widget. New drives show up the next time you open Settings |
 | **Style** | **Clear** (default) gives real transparency. **Acrylic blur** and **Mica** give the Windows 11 frosted glass. Blur always keeps some grey tint, so use Clear if you want it fully see-through |
 | **What to monitor** | Tick a metric to show and collect it. Untick it to hide it and stop collecting it |
 | **Refresh rate** | 1 s, 2 s or 5 s. Slower uses less CPU |
@@ -112,10 +116,11 @@ Settings are saved to `%APPDATA%\LiquidHUD\settings.json`.
 ![Overlay bar on top of a game](docs/images/overlay.png)
 
 1. Press **`Ctrl+Alt+O`** to turn the overlay on.
-2. Press **`Ctrl+Alt+P`** to move it. It cycles through top left, top center, top right, bottom left and bottom right.
+2. Press **`Ctrl+Alt+P`** to cycle its pinned position: top left, top center, top right, bottom left, bottom right, custom.
+   - **Or put it anywhere:** press **`Ctrl+Alt+M`** (or tick **Free move** in Settings), drag the bar where you want it, then press `Ctrl+Alt+M` again to lock it. Its spot is saved as a fraction of the screen, so it lands in the same place on every monitor.
 3. Press **`Ctrl+Alt+H`** to hide the big widget so only the overlay stays.
 
-The overlay is **click-through**: your mouse goes straight to the game, and it never steals focus or shows up in Alt+Tab.
+When it's locked, the overlay is **click-through**: your mouse goes straight to the game, and it never steals focus or shows up in Alt+Tab.
 
 > **Important:** set your game's display mode to **Borderless** or **Windowed Fullscreen**. In **Exclusive Fullscreen** the game takes over the whole display and no overlay can draw on top. That's a Windows limit, not a bug in LiquidHUD.
 
@@ -130,6 +135,7 @@ The overlay is **click-through**: your mouse goes straight to the game, and it n
 | `Ctrl+Alt+S` | Open Settings |
 | `Ctrl+Alt+O` | Toggle game overlay |
 | `Ctrl+Alt+P` | Cycle overlay position |
+| `Ctrl+Alt+M` | Free move overlay on/off (drag it, then press again to lock) |
 | `Ctrl+Alt+H` | Hide / show widget |
 | Double-click widget | Open Task Manager |
 | Right-click widget | Menu |
@@ -145,7 +151,7 @@ The overlay is **click-through**: your mouse goes straight to the game, and it n
 |                              |                           |                         |
 |  PerformanceCounter (CPU,GPU)|                           |  Widget window          |
 |  ComputerInfo (RAM)          |                           |   (Clear / Acrylic)     |
-|  DriveInfo (disk)            |                           |  Overlay window(s)      |
+|  DriveInfo (all disks)       |                           |  Overlay window(s)      |
 |  NetworkInterface (net)      |                           |   (layered, click-thru) |
 |  PowerStatus (battery)       |                           |  Settings window        |
 |  Process list (top apps)     |                           |                         |

@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v5  -  glass system monitor widget + game overlay for Windows
+#  LiquidHUD v6  -  glass system monitor widget + game overlay for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -7,6 +7,7 @@
 #    Ctrl+Alt+S  = open Settings (opacity, metrics, refresh rate)
 #    Ctrl+Alt+O  = toggle game overlay (small click-through bar on top of everything)
 #    Ctrl+Alt+P  = cycle overlay position
+#    Ctrl+Alt+M  = free move overlay (drag it anywhere, press again to lock)
 #    Ctrl+Alt+H  = hide/show the big widget
 #  Widget: drag = move | double-click = Task Manager | right-click = menu
 #
@@ -50,6 +51,11 @@ public static class LhNative {
         ex |= 0x20 | 0x80 | 0x08000000 | 0x80000;
         SetWindowLongPtr(h, -20, new IntPtr(ex));
     }
+    public static void ClickThrough(IntPtr h, bool on) {
+        long ex = GetWindowLongPtr(h, -20).ToInt64();
+        if (on) ex |= 0x20; else ex &= ~0x20L;
+        SetWindowLongPtr(h, -20, new IntPtr(ex));
+    }
     public static void ToolWindow(IntPtr h) {
         long ex = GetWindowLongPtr(h, -20).ToInt64();
         SetWindowLongPtr(h, -20, new IntPtr(ex | 0x80));
@@ -79,9 +85,24 @@ $modern = [Environment]::OSVersion.Version.Build -ge 22621
 
 # ---------- metric list ----------
 $metrics = [ordered]@{
-    Cpu = 'CPU'; Gpu = 'GPU'; Ram = 'RAM'; Disk = 'Disk C:'; Graph = 'Graph (60s)'
+    Cpu = 'CPU'; Gpu = 'GPU'; Ram = 'RAM'; Graph = 'Graph (60s)'
     Net = 'Network'; Batt = 'Battery'; Up = 'Uptime'; TopC = 'Top CPU app'; TopR = 'Top RAM app'; Clock = 'Clock'
 }
+
+# ---------- drives (every ready fixed / removable disk) ----------
+function Get-Drives {
+    $list = @()
+    foreach ($dv in [IO.DriveInfo]::GetDrives()) {
+        try {
+            if (-not $dv.IsReady) { continue }
+            if ($dv.DriveType -ne 'Fixed' -and $dv.DriveType -ne 'Removable') { continue }
+            $lbl = $dv.VolumeLabel
+            $list += [pscustomobject]@{ Letter = $dv.Name.Substring(0, 1).ToUpper(); Label = $lbl; Total = [double]$dv.TotalSize }
+        } catch {}
+    }
+    ,$list
+}
+$script:drives = Get-Drives
 
 # ---------- settings ----------
 $cfgDir  = Join-Path $env:APPDATA 'LiquidHUD'
@@ -89,24 +110,30 @@ $cfgFile = Join-Path $cfgDir 'settings.json'
 if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir | Out-Null }
 $showDefault = [ordered]@{}; foreach ($k in $metrics.Keys) { $showDefault[$k] = $true }
 $cfg = [pscustomobject]@{
-    Left = -1; Top = 40; Topmost = $false; Style = 'Clear'; Overlay = $false; OverlayAll = $true; OverlayPos = 2
+    Left = -1; Top = 40; Topmost = $false; Style = 'Clear'; Overlay = $false; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayX = 0.98; OverlayY = 0.01
     WidgetHidden = $false; WidgetOpacity = 55; OverlayOpacity = 45; Interval = 2
     Show = [pscustomobject]$showDefault
+    Disks = @{}
 }
 if (Test-Path $cfgFile) {
     try {
         $j = Get-Content $cfgFile -Raw | ConvertFrom-Json
-        foreach ($p in $cfg.PSObject.Properties.Name) { if ($p -ne 'Show' -and $null -ne $j.$p) { $cfg.$p = $j.$p } }
+        foreach ($p in $cfg.PSObject.Properties.Name) { if ($p -ne 'Show' -and $p -ne 'Disks' -and $null -ne $j.$p) { $cfg.$p = $j.$p } }
+        if ($j.Disks) { foreach ($pp in $j.Disks.PSObject.Properties) { $cfg.Disks[$pp.Name] = [bool]$pp.Value } }
         if ($j.Show) { foreach ($k in $metrics.Keys) { if ($null -ne $j.Show.$k) { $cfg.Show.$k = [bool]$j.Show.$k } } }
     } catch {}
 }
 if (@(1, 2, 5) -notcontains [int]$cfg.Interval) { $cfg.Interval = 2 }
+if ([int]$cfg.OverlayPos -lt 0 -or [int]$cfg.OverlayPos -gt 5) { $cfg.OverlayPos = 2 }
+$cfg.OverlayFree = $false
+foreach ($dv in $script:drives) { if (-not $cfg.Disks.ContainsKey($dv.Letter)) { $cfg.Disks[$dv.Letter] = $true } }
 if (@('Clear', 'Acrylic', 'Mica') -notcontains $cfg.Style) { $cfg.Style = 'Clear' }
 if (-not $modern) { $cfg.Style = 'Clear' }
 function Save-Cfg { try { $cfg | ConvertTo-Json -Depth 3 | Set-Content -Path $cfgFile -Encoding UTF8 } catch {} }
 function Want-Table {
     $w = @{}; foreach ($k in $metrics.Keys) { $w[$k] = [bool]$cfg.Show.$k }
     $w.Graph = $w.Graph -and -not $cfg.WidgetHidden
+    $w.Disks = @(foreach ($dv in $script:drives) { if ($cfg.Disks[$dv.Letter] -and -not $cfg.WidgetHidden) { $dv.Letter } })
     $w
 }
 
@@ -159,7 +186,7 @@ $collector = {
     $self = [Diagnostics.Process]::GetCurrentProcess()
     $selfPrev = $self.TotalProcessorTime.TotalSeconds
     $selfSw = [Diagnostics.Stopwatch]::StartNew()
-    $d = @{ TopC = ''; TopR = ''; TopRBytes = 0; DiskUsed = 0; DiskTot = 0 }
+    $d = @{ TopC = ''; TopR = ''; TopRBytes = 0; Disks = @{}; DiskKey = '' }
 
     while (-not $sync.Stop) {
         $loop = [Diagnostics.Stopwatch]::StartNew()
@@ -181,12 +208,16 @@ $collector = {
 
             if ($w.Ram) { $n.RamTot = [double]$ci.TotalPhysicalMemory; $n.RamUsed = $n.RamTot - [double]$ci.AvailablePhysicalMemory }
 
-            if ($w.Disk -and ($null -eq $diskSw -or $diskSw.Elapsed.TotalSeconds -ge 30)) {
-                $dr = New-Object IO.DriveInfo('C')
-                $d.DiskTot = [double]$dr.TotalSize; $d.DiskUsed = [double]($dr.TotalSize - $dr.AvailableFreeSpace)
+            $want = ($w.Disks -join ',')
+            if ($w.Disks.Count -and ($null -eq $diskSw -or $diskSw.Elapsed.TotalSeconds -ge 30 -or $d.DiskKey -ne $want)) {
+                $dd = @{}
+                foreach ($lt in $w.Disks) {
+                    try { $dr = New-Object IO.DriveInfo($lt); if ($dr.IsReady) { $dd[$lt] = @([double]($dr.TotalSize - $dr.AvailableFreeSpace), [double]$dr.TotalSize) } } catch {}
+                }
+                $d.Disks = $dd; $d.DiskKey = $want
                 $diskSw = [Diagnostics.Stopwatch]::StartNew()
             }
-            $n.DiskTot = $d.DiskTot; $n.DiskUsed = $d.DiskUsed
+            $n.Disks = $d.Disks
 
             if ($w.Net) {
                 $now = NetBytes; $dt = [Math]::Max(0.2, $netSw.Elapsed.TotalSeconds); $netSw.Restart()
@@ -300,6 +331,11 @@ function Apply-Glass($w, $bd) {
     [LhNative]::Glass($h, [int]$bd)
 }
 
+function Disk-Rows {
+    $out = ''
+    foreach ($dv in $script:drives) { $out += (Row ('Disk' + $dv.Letter) ($dv.Letter + ':') '#85B7EB' '#9FE1CB') }
+    $out
+}
 function Widget-Xaml {
     if (Use-Dwm) {
         $winAttrs = 'Width="300" SizeToContent="Height" WindowStyle="None" ResizeMode="NoResize" Background="Transparent"'
@@ -344,7 +380,7 @@ function Widget-Xaml {
           $(Row 'Cpu'  'CPU' '#85B7EB' '#AFA9EC')
           $(Row 'Gpu'  'GPU' '#9FE1CB' '#85B7EB')
           $(Row 'Ram'  'RAM' '#AFA9EC' '#85B7EB')
-          $(Row 'Disk' 'C:'  '#85B7EB' '#9FE1CB')
+          $(Disk-Rows)
     
           <StackPanel x:Name="GraphRow">
             <Border Height="52" CornerRadius="10" Background="#14FFFFFF" Margin="0,14,0,0" ClipToBounds="True">
@@ -384,10 +420,15 @@ function Build-Widget {
     $script:win = $w
     $script:ui = @{}
     foreach ($n in 'Glass','Sheen','Content','Pill','PillText','Clock','CpuVal','CpuBar','CpuSub','GpuVal','GpuBar','GpuSub','RamVal','RamBar','RamSub',
-                   'DiskVal','DiskBar','DiskSub','LineCpu','LineGpu','NetVal','BattVal','UpVal','TopCVal','TopRVal') { $script:ui[$n] = $w.FindName($n) }
+                   'LineCpu','LineGpu','NetVal','BattVal','UpVal','TopCVal','TopRVal') { $script:ui[$n] = $w.FindName($n) }
     $script:rows = @{}
     foreach ($k in $metrics.Keys) { if ($k -ne 'Clock') { $script:rows[$k] = $w.FindName("${k}Row") } }
     $script:rows['Clock'] = $script:ui.Clock
+    $script:diskUi = @{}
+    foreach ($dv in $script:drives) {
+        $id = 'Disk' + $dv.Letter
+        $script:diskUi[$dv.Letter] = @{ Row = $w.FindName("${id}Row"); Val = $w.FindName("${id}Val"); Sub = $w.FindName("${id}Sub"); Bar = $w.FindName("${id}Bar") }
+    }
     $script:barLast = @{}
 
     $wa = [System.Windows.SystemParameters]::WorkArea
@@ -407,7 +448,7 @@ function Build-Widget {
     })
     if ($script:menu) { $w.ContextMenu = $script:menu }
     Apply-Opacity
-    if ($script:rows) { foreach ($k in $metrics.Keys) { $script:rows[$k].Visibility = if ($cfg.Show.$k) { 'Visible' } else { 'Collapsed' } } }
+    Apply-RowVisibility
     if (-not $cfg.WidgetHidden) { $w.Show() }
 }
 
@@ -437,11 +478,13 @@ $osdXaml = @"
 </Window>
 "@
 $osdKeys = @('Cpu', 'Gpu', 'Ram', 'Net', 'TopC', 'Clock')
-$posNames = @('Top left', 'Top center', 'Top right', 'Bottom left', 'Bottom right')
+$posNames = @('Top left', 'Top center', 'Top right', 'Bottom left', 'Bottom right', 'Custom')
 $script:osds = @()
+$freeEdge = Brush '#9FE1CB'; $osdEdge = Brush '#40FFFFFF'
 $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $dpi = $g.DpiX / 96.0; $g.Dispose()
 
 function Place-Osd($o) {
+    if ($cfg.OverlayFree) { return }     # user is dragging it around
     $w = $o.Win; $a = $o.Screen.WorkingArea
     $L = $a.Left / $dpi; $T = $a.Top / $dpi; $R = $a.Right / $dpi; $B = $a.Bottom / $dpi
     $ww = $w.ActualWidth; $hh = $w.ActualHeight; $m = 10
@@ -450,7 +493,12 @@ function Place-Osd($o) {
         1 { $x = ($L + $R - $ww) / 2; $y = $T + $m }
         2 { $x = $R - $ww - $m; $y = $T + $m }
         3 { $x = $L + $m; $y = $B - $hh - $m }
-        default { $x = $R - $ww - $m; $y = $B - $hh - $m }
+        4 { $x = $R - $ww - $m; $y = $B - $hh - $m }
+        default {
+            # custom: saved as a fraction of the screen, so it lands in the same spot on every monitor
+            $x = $L + [double]$cfg.OverlayX * [Math]::Max(0, ($R - $L - $ww))
+            $y = $T + [double]$cfg.OverlayY * [Math]::Max(0, ($B - $T - $hh))
+        }
     }
     if ([Math]::Abs($w.Left - $x) -gt 0.5) { $w.Left = $x }
     if ([Math]::Abs($w.Top - $y) -gt 0.5) { $w.Top = $y }
@@ -470,12 +518,55 @@ function Build-Osds {
         [LhNative]::MakeOverlay($h)
         $w.Left = $sc.WorkingArea.Left / $dpi; $w.Top = $sc.WorkingArea.Top / $dpi
         $seg = @{}; foreach ($k in $osdKeys) { $seg[$k] = $w.FindName("s$k") }
+        $w.Add_MouseLeftButtonDown({
+            param($sn, $e)
+            if (-not $cfg.OverlayFree) { return }
+            try { $sn.DragMove() } catch {}
+            Save-OsdSpot $sn
+        })
         $o = @{ Win = $w; H = $h; Screen = $sc; Seg = $seg; Bg = $w.FindName('oBg'); Body = $w.FindName('oContent'); Cpu = $w.FindName('oCpu'); Gpu = $w.FindName('oGpu'); Ram = $w.FindName('oRam') }
         Apply-OsdMetrics $o
         $w.Show(); $w.UpdateLayout()
         Place-Osd $o
         $script:osds += $o
     }
+    Apply-Free
+}
+# remember where the user dropped the overlay (fraction of that monitor)
+function Save-OsdSpot($w) {
+    $cx = [int](($w.Left + $w.ActualWidth / 2) * $dpi); $cy = [int](($w.Top + $w.ActualHeight / 2) * $dpi)
+    $sc = [System.Windows.Forms.Screen]::FromPoint((New-Object System.Drawing.Point($cx, $cy)))
+    $a = $sc.WorkingArea
+    $L = $a.Left / $dpi; $T = $a.Top / $dpi; $scW = $a.Width / $dpi; $scH = $a.Height / $dpi
+    $cfg.OverlayX = [Math]::Max(0, [Math]::Min(1, ($w.Left - $L) / [Math]::Max(1, $scW - $w.ActualWidth)))
+    $cfg.OverlayY = [Math]::Max(0, [Math]::Min(1, ($w.Top - $T) / [Math]::Max(1, $scH - $w.ActualHeight)))
+    $cfg.OverlayPos = 5
+    foreach ($o in $script:osds) { if ($o.Win -eq $w) { $o.Screen = $sc } }
+    Save-Cfg
+}
+# free move ON = overlay can be grabbed with the mouse (dashed outline). OFF = locked + click-through.
+function Apply-Free {
+    foreach ($o in $script:osds) {
+        [LhNative]::ClickThrough($o.H, -not $cfg.OverlayFree)
+        $o.Win.IsHitTestVisible = [bool]$cfg.OverlayFree
+        if ($cfg.OverlayFree) {
+            $o.Bg.BorderBrush = $freeEdge; $o.Bg.BorderThickness = 1.6; $o.Bg.Opacity = [Math]::Max(0.35, $o.Bg.Opacity)
+            $o.Win.Cursor = [Windows.Input.Cursors]::SizeAll
+        } else {
+            $o.Bg.BorderBrush = $osdEdge; $o.Bg.BorderThickness = 1
+            $o.Win.Cursor = $null
+            Apply-OsdOpacity $o
+            Place-Osd $o
+        }
+    }
+}
+function Set-Free($on) {
+    if ($on -and -not $cfg.Overlay) { $cfg.Overlay = $true; Build-Osds }
+    $cfg.OverlayFree = [bool]$on
+    Apply-Free
+    Save-Cfg
+    if ($script:sUi) { $script:sUi.sFree.IsChecked = [bool]$on; Sync-PosRadios }
+    if ($mi) { Refresh-Menu }
 }
 
 # =====================================================================
@@ -498,17 +589,22 @@ function Apply-Opacity {
         $script:ui.Sheen.Opacity = 0.3 + 0.7 * $t
         $script:ui.Content.Effect = $null
     } else {
-        # clear mode: real transparency (min 1% so the widget can still be dragged)
+        # clear mode: 0% = text + a faint ghost of the box, 100% = solid
         $script:ui.Glass.Background = Brush '#F00C0E16'
-        $script:ui.Glass.Opacity = [Math]::Max(0.012, $t)
-        $script:ui.Sheen.Opacity = $t
+        $script:ui.Glass.Opacity = 0.10 + 0.90 * $t
+        $script:ui.Sheen.Opacity = 0.35 + 0.65 * $t
         $script:ui.Content.Effect = if ($t -lt 0.6) { $textShadow } else { $null }
     }
     $script:ui.Content.Opacity = 1
     foreach ($o in $script:osds) { Apply-OsdOpacity $o }
 }
+function Apply-RowVisibility {
+    if (-not $script:rows) { return }
+    foreach ($k in $metrics.Keys) { $script:rows[$k].Visibility = if ($cfg.Show.$k) { 'Visible' } else { 'Collapsed' } }
+    foreach ($lt in $script:diskUi.Keys) { $script:diskUi[$lt].Row.Visibility = if ($cfg.Disks[$lt]) { 'Visible' } else { 'Collapsed' } }
+}
 function Apply-Metrics {
-    foreach ($k in $metrics.Keys) { $rows[$k].Visibility = if ($cfg.Show.$k) { 'Visible' } else { 'Collapsed' } }
+    Apply-RowVisibility
     foreach ($o in $script:osds) { Apply-OsdMetrics $o; $o.Win.UpdateLayout(); Place-Osd $o }
     $sync.Want = Want-Table
 }
@@ -519,7 +615,7 @@ function Apply-Metrics {
 $settingsXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LiquidHUD Settings" $(if ($modern) { 'Width="360" SizeToContent="Height" WindowStyle="None" ResizeMode="NoResize" Background="Transparent"' } else { 'Width="360" SizeToContent="Height" WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" Background="Transparent"' })
+        Title="LiquidHUD Settings" $(if ($modern) { 'Width="680" SizeToContent="Height" WindowStyle="None" ResizeMode="NoResize" Background="Transparent"' } else { 'Width="680" SizeToContent="Height" WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" Background="Transparent"' })
         Topmost="True" WindowStartupLocation="CenterScreen" FontFamily="Segoe UI Variable Display, Segoe UI">
   $(if ($modern) { $chromeXaml } else { '' })
   <Window.Resources>
@@ -551,7 +647,7 @@ $settingsXaml = @"
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="RadioButton">
-            <Border x:Name="Bd" CornerRadius="8" Padding="14,5" Margin="0,0,6,0" Background="#14FFFFFF" BorderBrush="#33FFFFFF" BorderThickness="1">
+            <Border x:Name="Bd" CornerRadius="8" Padding="12,5" Margin="0,0,6,6" Background="#14FFFFFF" BorderBrush="#33FFFFFF" BorderThickness="1">
               <ContentPresenter HorizontalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
@@ -576,20 +672,25 @@ $settingsXaml = @"
           <TextBlock Text="&#x2715;" Foreground="White" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
       </Grid>
-
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="28"/><ColumnDefinition Width="300"/></Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0">
       <TextBlock Style="{StaticResource Head}" Text="Widget background   (left = clear, right = solid)"/>
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="46"/></Grid.ColumnDefinitions>
         <Slider x:Name="sWop" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" IsMoveToPointEnabled="True" VerticalAlignment="Center"/>
         <TextBlock x:Name="sWopVal" Grid.Column="1" Foreground="White" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center"/>
       </Grid>
-
       <TextBlock Style="{StaticResource Head}" Text="Game overlay background"/>
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="46"/></Grid.ColumnDefinitions>
         <Slider x:Name="sOop" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" IsMoveToPointEnabled="True" VerticalAlignment="Center"/>
         <TextBlock x:Name="sOopVal" Grid.Column="1" Foreground="White" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center"/>
       </Grid>
+
+      <TextBlock Style="{StaticResource Head}" Text="Overlay position"/>
+      <WrapPanel x:Name="sPos"/>
+      <CheckBox x:Name="sFree" Width="300" Margin="0,6,0,0" Content="Free move  (drag the overlay, untick to lock it)"/>
 
       <StackPanel x:Name="sStyleBox">
         <TextBlock Style="{StaticResource Head}" Text="Style"/>
@@ -599,9 +700,13 @@ $settingsXaml = @"
           <RadioButton x:Name="sSM" GroupName="st" Content="Mica"/>
         </StackPanel>
       </StackPanel>
-
+        </StackPanel>
+        <StackPanel Grid.Column="2">
       <TextBlock Style="{StaticResource Head}" Text="What to monitor"/>
       <WrapPanel x:Name="sChecks"/>
+
+      <TextBlock Style="{StaticResource Head}" Text="Disks"/>
+      <WrapPanel x:Name="sDisks"/>
 
       <TextBlock Style="{StaticResource Head}" Text="Refresh rate (slower = lighter)"/>
       <StackPanel Orientation="Horizontal">
@@ -616,17 +721,54 @@ $settingsXaml = @"
           <TextBlock x:Name="sSelf" Text="--" Foreground="White" FontSize="13" FontWeight="SemiBold" Margin="0,2,0,0"/>
         </StackPanel>
       </Border>
+        </StackPanel>
+      </Grid>
     </StackPanel>
   </Border>
 </Window>
 "@
 $script:sWin = $null
+function Sync-PosRadios { if ($script:posRadios) { foreach ($rb in $script:posRadios) { $rb.IsChecked = ([int]$cfg.OverlayPos -eq [int]$rb.Tag) } } }
+function Set-Pos($i) {
+    if ($cfg.OverlayFree) { $cfg.OverlayFree = $false; Apply-Free; if ($script:sUi) { $script:sUi.sFree.IsChecked = $false } }
+    $cfg.OverlayPos = $i; Save-Cfg
+    foreach ($o in $script:osds) { Place-Osd $o }
+    Sync-PosRadios; Refresh-Menu
+}
+function Fill-DiskChecks {
+    if (-not $script:sUi) { return }
+    $p = $script:sUi.sDisks; $p.Children.Clear()
+    foreach ($dv in $script:drives) {
+        $cb = New-Object Windows.Controls.CheckBox
+        $size = if ($dv.Total -ge 1TB) { '{0:N1} TB' -f ($dv.Total / 1TB) } else { '{0:N0} GB' -f ($dv.Total / 1GB) }
+        $name = if ($dv.Label) { $dv.Label } else { 'Disk' }
+        $cb.Content = '{0}:  {1}  ({2})' -f $dv.Letter, $name, $size
+        $cb.Width = 300; $cb.Tag = $dv.Letter; $cb.IsChecked = [bool]$cfg.Disks[$dv.Letter]
+        $cb.Add_Click({ $cfg.Disks[$this.Tag] = [bool]$this.IsChecked; Apply-Metrics; Save-Cfg })
+        [void]$p.Children.Add($cb)
+    }
+    if (-not $script:drives.Count) {
+        $tb = New-Object Windows.Controls.TextBlock; $tb.Text = 'No disks found'; $tb.Foreground = $white
+        [void]$p.Children.Add($tb)
+    }
+}
+# new USB / extra disk plugged in? rescan when Settings opens and rebuild the widget if the list changed
+function Refresh-Drives {
+    $now = Get-Drives
+    $a = ($script:drives | ForEach-Object { $_.Letter }) -join ','
+    $b = ($now | ForEach-Object { $_.Letter }) -join ','
+    if ($a -ne $b) {
+        $script:drives = $now
+        foreach ($dv in $now) { if (-not $cfg.Disks.ContainsKey($dv.Letter)) { $cfg.Disks[$dv.Letter] = $true } }
+        Build-Widget; $sync.Want = Want-Table
+    }
+}
 function Open-Settings {
-    if ($script:sWin) { $script:sWin.Show(); $script:sWin.Activate() | Out-Null; return }
+    if ($script:sWin) { Refresh-Drives; Fill-DiskChecks; Sync-PosRadios; $script:sWin.Show(); $script:sWin.Activate() | Out-Null; return }
     $sw = [Windows.Markup.XamlReader]::Parse($settingsXaml)
     $script:sWin = $sw
     $script:sUi = @{}
-    foreach ($n in 'sRoot','sClose','sWop','sWopVal','sOop','sOopVal','sChecks','sR1','sR2','sR5','sSelf','sStyleBox','sSC','sSA','sSM') { $script:sUi[$n] = $sw.FindName($n) }
+    foreach ($n in 'sRoot','sClose','sWop','sWopVal','sOop','sOopVal','sChecks','sR1','sR2','sR5','sSelf','sStyleBox','sSC','sSA','sSM','sPos','sFree','sDisks') { $script:sUi[$n] = $sw.FindName($n) }
     $s = $script:sUi
 
     $s.sWop.Value = [double]$cfg.WidgetOpacity;  $s.sWopVal.Text = "$([int]$cfg.WidgetOpacity)%"
@@ -640,6 +782,20 @@ function Open-Settings {
         $cb.Add_Click({ $cfg.Show.($this.Tag) = [bool]$this.IsChecked; Apply-Metrics; Save-Cfg })
         [void]$s.sChecks.Children.Add($cb)
     }
+
+    $script:posRadios = @()
+    for ($i = 0; $i -le 5; $i++) {
+        $rb = New-Object Windows.Controls.RadioButton
+        $rb.GroupName = 'pos'; $rb.Content = $posNames[$i]; $rb.Tag = $i
+        $rb.IsChecked = ([int]$cfg.OverlayPos -eq $i)
+        if ($i -eq 5) { $rb.ToolTip = 'Where you last dropped it with Free move' }
+        $rb.Add_Click({ Set-Pos ([int]$this.Tag) })
+        [void]$s.sPos.Children.Add($rb); $script:posRadios += $rb
+    }
+    $s.sFree.IsChecked = [bool]$cfg.OverlayFree
+    $s.sFree.Add_Click({ Set-Free ([bool]$this.IsChecked) })
+
+    Fill-DiskChecks
 
     switch ([int]$cfg.Interval) { 1 { $s.sR1.IsChecked = $true } 5 { $s.sR5.IsChecked = $true } default { $s.sR2.IsChecked = $true } }
     foreach ($p in @(@($s.sR1, 1), @($s.sR2, 2), @($s.sR5, 5))) {
@@ -701,6 +857,7 @@ $menuXaml = @"
   <MenuItem x:Name="mSettings" Header="Settings" InputGestureText="Ctrl+Alt+S"/>
   <MenuItem x:Name="mOverlay"  Header="Game overlay" InputGestureText="Ctrl+Alt+O"/>
   <MenuItem x:Name="mPos"      Header="Overlay position" InputGestureText="Ctrl+Alt+P"/>
+  <MenuItem x:Name="mFree"     Header="Free move overlay" InputGestureText="Ctrl+Alt+M"/>
   <MenuItem x:Name="mAll"      Header="Overlay on all monitors"/>
   <MenuItem x:Name="mHide"     Header="Hide widget" InputGestureText="Ctrl+Alt+H"/>
   <MenuItem x:Name="mGlass"    Header="Style: Clear"/>
@@ -713,20 +870,21 @@ $menuXaml = @"
 $script:menu = [Windows.Markup.XamlReader]::Parse($menuXaml)
 $menu = $script:menu
 $mi = @{}
-foreach ($n in 'mSettings','mOverlay','mPos','mAll','mHide','mGlass','mTop','mStartup','mTask','mExit') { $mi[$n] = $menu.FindName($n) }
+foreach ($n in 'mSettings','mOverlay','mPos','mFree','mAll','mHide','mGlass','mTop','mStartup','mTask','mExit') { $mi[$n] = $menu.FindName($n) }
 $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'LiquidHUD.lnk'
 
 function Refresh-Menu {
     $mi.mOverlay.IsChecked = [bool]$cfg.Overlay
     $mi.mAll.IsChecked = [bool]$cfg.OverlayAll
+    $mi.mFree.IsChecked = [bool]$cfg.OverlayFree
     $mi.mPos.Header = 'Overlay position: ' + $posNames[[int]$cfg.OverlayPos]
     $mi.mTop.IsChecked = [bool]$cfg.Topmost
     $mi.mStartup.IsChecked = Test-Path $startupLnk
     $mi.mGlass.Header = 'Style: ' + $cfg.Style
     $mi.mGlass.Visibility = if ($modern) { 'Visible' } else { 'Collapsed' }
 }
-function Toggle-Overlay { $cfg.Overlay = -not $cfg.Overlay; Save-Cfg; Build-Osds; Refresh-Menu }
-function Cycle-Pos { $cfg.OverlayPos = ([int]$cfg.OverlayPos + 1) % 5; Save-Cfg; foreach ($o in $script:osds) { Place-Osd $o }; Refresh-Menu }
+function Toggle-Overlay { $cfg.Overlay = -not $cfg.Overlay; if (-not $cfg.Overlay) { $cfg.OverlayFree = $false }; Save-Cfg; Build-Osds; Refresh-Menu }
+function Cycle-Pos { Set-Pos (([int]$cfg.OverlayPos + 1) % 6) }
 function Toggle-Widget {
     $cfg.WidgetHidden = -not $cfg.WidgetHidden; Save-Cfg
     if ($cfg.WidgetHidden) { $win.Hide() } else { $win.Show(); if (Use-Dwm) { Apply-Glass $win (Backdrop-Id) } }
@@ -734,6 +892,7 @@ function Toggle-Widget {
 }
 function Quit-All {
     $timer.Stop(); $sync.Stop = $true
+    $cfg.OverlayFree = $false
     $cfg.Left = $win.Left; $cfg.Top = $win.Top; Save-Cfg
     foreach ($o in $script:osds) { try { $o.Win.Close() } catch {} }
     try { $hk.Dispose() } catch {}
@@ -744,6 +903,7 @@ function Quit-All {
 $mi.mSettings.Add_Click({ Open-Settings })
 $mi.mOverlay.Add_Click({ Toggle-Overlay })
 $mi.mPos.Add_Click({ Cycle-Pos })
+$mi.mFree.Add_Click({ Set-Free (-not $cfg.OverlayFree) })
 $mi.mAll.Add_Click({ $cfg.OverlayAll = -not $cfg.OverlayAll; Save-Cfg; Build-Osds; Refresh-Menu })
 $mi.mHide.Add_Click({ Toggle-Widget })
 $mi.mGlass.Add_Click({
@@ -782,9 +942,10 @@ $MOD = 0x0002 -bor 0x0001 -bor 0x4000    # Ctrl + Alt + NoRepeat
 [void]$hk.Register(2, $MOD, 0x50)   # P
 [void]$hk.Register(3, $MOD, 0x48)   # H
 [void]$hk.Register(4, $MOD, 0x53)   # S
+[void]$hk.Register(5, $MOD, 0x4D)   # M
 $hk.Add_Pressed({
     param($id)
-    switch ($id) { 1 { Toggle-Overlay } 2 { Cycle-Pos } 3 { Toggle-Widget } 4 { Open-Settings } }
+    switch ($id) { 1 { Toggle-Overlay } 2 { Cycle-Pos } 3 { Toggle-Widget } 4 { Open-Settings } 5 { Set-Free (-not $cfg.OverlayFree) } }
 })
 
 # =====================================================================
@@ -871,11 +1032,14 @@ $timer.Add_Tick({
             Set-Text $ui.RamSub ('{0:N1} / {1:N1} GB' -f ($d.RamUsed / 1GB), ($d.RamTot / 1GB))
             Set-Bar $ui.RamBar $ramPct
         }
-        if ($S.Disk -and $d.DiskTot) {
-            $dp = $d.DiskUsed / $d.DiskTot * 100
-            Set-Text $ui.DiskVal ('{0:N0}%' -f $dp)
-            Set-Text $ui.DiskSub ('{0:N0} / {1:N0} GB' -f ($d.DiskUsed / 1GB), ($d.DiskTot / 1GB))
-            Set-Bar $ui.DiskBar $dp
+        foreach ($lt in $script:diskUi.Keys) {
+            if (-not $cfg.Disks[$lt] -or -not $d.Disks -or -not $d.Disks.ContainsKey($lt)) { continue }
+            $du = $d.Disks[$lt][0]; $dt = $d.Disks[$lt][1]; if (-not $dt) { continue }
+            $dp = $du / $dt * 100; $dui = $script:diskUi[$lt]
+            Set-Text $dui.Val ('{0:N0}%' -f $dp)
+            $dui.Val.Foreground = if ($dp -gt 90) { $hot } else { $white }
+            Set-Text $dui.Sub $(if ($dt -ge 1TB) { '{0:N2} / {1:N2} TB' -f ($du / 1TB), ($dt / 1TB) } else { '{0:N0} / {1:N0} GB' -f ($du / 1GB), ($dt / 1GB) })
+            Set-Bar $dui.Bar $dp
         }
         if ($S.Net) { Set-Text $ui.NetVal $netTxt.Replace('  ', '    ') }
         if ($S.Batt -and $null -ne $d.NoBatt) {
