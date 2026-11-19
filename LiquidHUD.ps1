@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v7  -  glass system monitor widget + game overlay for Windows
+#  LiquidHUD v8  -  glass system monitor widget + game overlay for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -100,26 +100,31 @@ if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir | Out
 $showDefault = [ordered]@{}; foreach ($k in $metrics.Keys) { $showDefault[$k] = $true }
 $cfg = [pscustomobject]@{
     Left = -1; Top = 40; Topmost = $false; Look = 'Outline'; Overlay = $false; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayX = 0.98; OverlayY = 0.01
-    WidgetHidden = $false; Interval = 2
+    WidgetHidden = $false; Interval = 2; Clock24 = $true
     Show = [pscustomobject]$showDefault
+    OsdShow = [pscustomobject][ordered]@{ Cpu = $true; Gpu = $true; Ram = $true; Net = $true; TopC = $true; TopR = $false; Batt = $false; Clock = $true }
     Disks = @{}
 }
 if (Test-Path $cfgFile) {
     try {
         $j = Get-Content $cfgFile -Raw | ConvertFrom-Json
-        foreach ($p in $cfg.PSObject.Properties.Name) { if ($p -ne 'Show' -and $p -ne 'Disks' -and $null -ne $j.$p) { $cfg.$p = $j.$p } }
+        foreach ($p in $cfg.PSObject.Properties.Name) { if ($p -ne 'Show' -and $p -ne 'OsdShow' -and $p -ne 'Disks' -and $null -ne $j.$p) { $cfg.$p = $j.$p } }
+        if ($j.OsdShow) { foreach ($pp in $cfg.OsdShow.PSObject.Properties.Name) { if ($null -ne $j.OsdShow.$pp) { $cfg.OsdShow.$pp = [bool]$j.OsdShow.$pp } } }
         if ($j.Disks) { foreach ($pp in $j.Disks.PSObject.Properties) { $cfg.Disks[$pp.Name] = [bool]$pp.Value } }
         if ($j.Show) { foreach ($k in $metrics.Keys) { if ($null -ne $j.Show.$k) { $cfg.Show.$k = [bool]$j.Show.$k } } }
     } catch {}
 }
 if (@(1, 2, 5) -notcontains [int]$cfg.Interval) { $cfg.Interval = 2 }
-if ([int]$cfg.OverlayPos -lt 0 -or [int]$cfg.OverlayPos -gt 5) { $cfg.OverlayPos = 2 }
+if ([int]$cfg.OverlayPos -lt 0 -or [int]$cfg.OverlayPos -gt 6) { $cfg.OverlayPos = 2 }
 $cfg.OverlayFree = $false
 foreach ($dv in $script:drives) { if (-not $cfg.Disks.ContainsKey($dv.Letter)) { $cfg.Disks[$dv.Letter] = $true } }
 if (@('Outline', 'Solid') -notcontains $cfg.Look) { $cfg.Look = 'Outline' }
 function Save-Cfg { try { $cfg | ConvertTo-Json -Depth 3 | Set-Content -Path $cfgFile -Encoding UTF8 } catch {} }
 function Want-Table {
-    $w = @{}; foreach ($k in $metrics.Keys) { $w[$k] = [bool]$cfg.Show.$k }
+    $w = @{}
+    foreach ($k in $metrics.Keys) {
+        $w[$k] = ([bool]$cfg.Show.$k -and -not $cfg.WidgetHidden) -or ($cfg.Overlay -and [bool]$cfg.OsdShow.$k)
+    }
     $w.Graph = $w.Graph -and -not $cfg.WidgetHidden
     $w.Disks = @(foreach ($dv in $script:drives) { if ($cfg.Disks[$dv.Letter] -and -not $cfg.WidgetHidden) { $dv.Letter } })
     $w
@@ -337,7 +342,7 @@ function Widget-Xaml {
           </Border.Background>
         </Border>
     
-        <StackPanel x:Name="Content" Margin="20,16,20,18">
+        <StackPanel x:Name="Content" Margin="20,16,20,18" Typography.NumeralAlignment="Tabular">
           <Grid>
             <StackPanel Orientation="Horizontal">
               <TextBlock Text="System" Foreground="White" FontSize="19" FontWeight="Bold"/>
@@ -434,22 +439,26 @@ $osdXaml = @"
   <Grid>
   <Border x:Name="oBg" CornerRadius="11" Background="#F00C0E16" BorderBrush="#40FFFFFF" BorderThickness="1"/>
   <Border Padding="6,5,12,6">
-    <StackPanel x:Name="oContent" Orientation="Horizontal" TextBlock.FontSize="12.5">
-      <StackPanel x:Name="sCpu" Orientation="Horizontal" Margin="6,0,6,0"><TextBlock Text="CPU " Foreground="#99FFFFFF" FontWeight="SemiBold"/><TextBlock x:Name="oCpu" Text="--" Foreground="White" FontWeight="Bold" MinWidth="30"/></StackPanel>
-      <StackPanel x:Name="sGpu" Orientation="Horizontal" Margin="6,0,6,0"><TextBlock Text="GPU " Foreground="#99FFFFFF" FontWeight="SemiBold"/><TextBlock x:Name="oGpu" Text="--" Foreground="#9FE1CB" FontWeight="Bold" MinWidth="30"/></StackPanel>
-      <StackPanel x:Name="sRam" Orientation="Horizontal" Margin="6,0,6,0"><TextBlock Text="RAM " Foreground="#99FFFFFF" FontWeight="SemiBold"/><TextBlock x:Name="oRam" Text="--" Foreground="White" FontWeight="Bold" MinWidth="30"/></StackPanel>
-      <TextBlock x:Name="sNet" Text="" Foreground="#CCFFFFFF" Margin="6,0,6,0" MinWidth="140"/>
-      <TextBlock x:Name="sTopC" Text="" Foreground="#99FFFFFF" Margin="6,0,6,0" MaxWidth="160" TextTrimming="CharacterEllipsis"/>
-      <TextBlock x:Name="sClock" Text="" Foreground="White" FontWeight="Light" Margin="6,0,0,0"/>
+    <StackPanel x:Name="oContent" Orientation="Horizontal" TextBlock.FontSize="12.5" Typography.NumeralAlignment="Tabular">
+      <StackPanel x:Name="sCpu" Orientation="Horizontal" Margin="6,0,6,0"><TextBlock Text="CPU " Foreground="#99FFFFFF" FontWeight="SemiBold"/><TextBlock x:Name="oCpu" Text="--" Foreground="White" FontWeight="Bold" Width="38" TextAlignment="Right"/></StackPanel>
+      <StackPanel x:Name="sGpu" Orientation="Horizontal" Margin="6,0,6,0"><TextBlock Text="GPU " Foreground="#99FFFFFF" FontWeight="SemiBold"/><TextBlock x:Name="oGpu" Text="--" Foreground="#9FE1CB" FontWeight="Bold" Width="38" TextAlignment="Right"/></StackPanel>
+      <StackPanel x:Name="sRam" Orientation="Horizontal" Margin="6,0,6,0"><TextBlock Text="RAM " Foreground="#99FFFFFF" FontWeight="SemiBold"/><TextBlock x:Name="oRam" Text="--" Foreground="White" FontWeight="Bold" Width="38" TextAlignment="Right"/></StackPanel>
+      <TextBlock x:Name="sNet" Text="" Foreground="#CCFFFFFF" Margin="6,0,6,0" Width="182"/>
+      <TextBlock x:Name="sTopC" Text="" Foreground="#99FFFFFF" Margin="6,0,6,0" Width="150" TextTrimming="CharacterEllipsis"/>
+      <TextBlock x:Name="sTopR" Text="" Foreground="#99FFFFFF" Margin="6,0,6,0" Width="150" TextTrimming="CharacterEllipsis"/>
+      <TextBlock x:Name="sBatt" Text="" Foreground="#CCFFFFFF" Margin="6,0,6,0" Width="58"/>
+      <TextBlock x:Name="sClock" Text="" Foreground="White" FontWeight="Light" Margin="6,0,0,0" TextAlignment="Right"/>
     </StackPanel>
   </Border>
   </Grid>
 </Window>
 "@
-$osdKeys = @('Cpu', 'Gpu', 'Ram', 'Net', 'TopC', 'Clock')
-$posNames = @('Top left', 'Top center', 'Top right', 'Bottom left', 'Bottom right', 'Custom')
+$osdKeys = @('Cpu', 'Gpu', 'Ram', 'Net', 'TopC', 'TopR', 'Batt', 'Clock')
+$osdLabels = [ordered]@{ Cpu = 'CPU'; Gpu = 'GPU'; Ram = 'RAM'; Net = 'Network'; TopC = 'Top CPU app'; TopR = 'Top RAM app'; Batt = 'Battery'; Clock = 'Clock' }
+$posNames = @('Top left', 'Top center', 'Top right', 'Bottom left', 'Bottom right', 'Custom', 'Bottom center')
+$posOrder = @(0, 1, 2, 3, 6, 4, 5)   # order shown in Settings / cycled by Ctrl+Alt+P
 $script:osds = @()
-$freeEdge = Brush '#9FE1CB'; $osdEdge = Brush '#40FFFFFF'; $outlineEdge = Brush '#BFFFFFFF'
+$freeEdge = Brush '#9FE1CB'; $osdEdge = Brush '#40FFFFFF'; $outlineEdge = Brush '#73FFFFFF'   # Outline frame: white at 45% opacity, 1 px
 $solidFill = Brush '#F20C0E16'; $clearFill = Brush '#00000000'; $hitFill = Brush '#03000000'; $grabFill = Brush '#40000000'
 $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $dpi = $g.DpiX / 96.0; $g.Dispose()
 
@@ -464,17 +473,20 @@ function Place-Osd($o) {
         2 { $x = $R - $ww - $m; $y = $T + $m }
         3 { $x = $L + $m; $y = $B - $hh - $m }
         4 { $x = $R - $ww - $m; $y = $B - $hh - $m }
+        6 { $x = ($L + $R - $ww) / 2; $y = $B - $hh - $m }
         default {
             # custom: saved as a fraction of the screen, so it lands in the same spot on every monitor
             $x = $L + [double]$cfg.OverlayX * [Math]::Max(0, ($R - $L - $ww))
             $y = $T + [double]$cfg.OverlayY * [Math]::Max(0, ($B - $T - $hh))
         }
     }
+    $x = [Math]::Round($x); $y = [Math]::Round($y)
     if ([Math]::Abs($w.Left - $x) -gt 0.5) { $w.Left = $x }
     if ([Math]::Abs($w.Top - $y) -gt 0.5) { $w.Top = $y }
 }
 function Apply-OsdMetrics($o) {
-    foreach ($k in $osdKeys) { $o.Seg[$k].Visibility = if ($cfg.Show.$k) { 'Visible' } else { 'Collapsed' } }
+    foreach ($k in $osdKeys) { $o.Seg[$k].Visibility = if ($cfg.OsdShow.$k) { 'Visible' } else { 'Collapsed' } }
+    $o.Seg.Clock.Width = if ($cfg.Clock24) { 40 } else { 62 }   # fixed width = bar never changes size
     Apply-OsdLook $o
 }
 function Build-Osds {
@@ -488,6 +500,7 @@ function Build-Osds {
         [LhNative]::MakeOverlay($h)
         $w.Left = $sc.WorkingArea.Left / $dpi; $w.Top = $sc.WorkingArea.Top / $dpi
         $seg = @{}; foreach ($k in $osdKeys) { $seg[$k] = $w.FindName("s$k") }
+        $w.Add_SizeChanged({ param($sn, $e); foreach ($oo in $script:osds) { if ($oo.Win -eq $sn) { Place-Osd $oo } } })
         $w.Add_MouseLeftButtonDown({
             param($sn, $e)
             if (-not $cfg.OverlayFree) { return }
@@ -550,7 +563,7 @@ function Apply-OsdLook($o) {
         $o.Bg.Background = $solidFill; $o.Bg.BorderBrush = $osdEdge; $o.Bg.BorderThickness = 1
         $o.Body.Effect = $null
     } else {
-        $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdge; $o.Bg.BorderThickness = 1.2
+        $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdge; $o.Bg.BorderThickness = 1
         $o.Body.Effect = $textShadow
     }
 }
@@ -562,7 +575,7 @@ function Apply-Look {
             $script:ui.Sheen.Visibility = 'Visible'
             $script:ui.Content.Effect = $null
         } else {
-            $g.Background = $hitFill; $g.BorderBrush = $outlineEdge; $g.BorderThickness = 1.4   # 1% fill so it can still be dragged
+            $g.Background = $hitFill; $g.BorderBrush = $outlineEdge; $g.BorderThickness = 1   # 1% fill so it can still be dragged
             $script:ui.Sheen.Visibility = 'Collapsed'
             $script:ui.Content.Effect = $textShadow
         }
@@ -587,7 +600,7 @@ function Apply-Metrics {
 $settingsXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LiquidHUD Settings" Width="680" SizeToContent="Height" WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" Background="Transparent"
+        Title="LiquidHUD Settings" Width="1000" SizeToContent="Height" WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" Background="Transparent"
         Topmost="True" WindowStartupLocation="CenterScreen" FontFamily="Segoe UI Variable Display, Segoe UI">
   <Window.Resources>
     <Style TargetType="CheckBox">
@@ -644,7 +657,7 @@ $settingsXaml = @"
         </Border>
       </Grid>
       <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="28"/><ColumnDefinition Width="300"/></Grid.ColumnDefinitions>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="28"/><ColumnDefinition Width="300"/><ColumnDefinition Width="28"/><ColumnDefinition Width="300"/></Grid.ColumnDefinitions>
         <StackPanel Grid.Column="0">
       <TextBlock Style="{StaticResource Head}" Text="Show"/>
       <StackPanel Orientation="Horizontal">
@@ -663,10 +676,16 @@ $settingsXaml = @"
       <WrapPanel x:Name="sPos"/>
       <CheckBox x:Name="sFree" Width="300" Margin="0,6,0,0" Content="Free move  (drag the overlay, untick to lock it)"/>
 
+      <TextBlock Style="{StaticResource Head}" Text="Clock"/>
+      <StackPanel Orientation="Horizontal">
+        <RadioButton x:Name="sC24" GroupName="clk" Content="24h  (18:46)"/>
+        <RadioButton x:Name="sC12" GroupName="clk" Content="12h  (6:46 PM)"/>
+      </StackPanel>
+
 
         </StackPanel>
         <StackPanel Grid.Column="2">
-      <TextBlock Style="{StaticResource Head}" Text="What to monitor"/>
+      <TextBlock Style="{StaticResource Head}" Text="Big widget shows"/>
       <WrapPanel x:Name="sChecks"/>
 
       <TextBlock Style="{StaticResource Head}" Text="Disks"/>
@@ -686,6 +705,11 @@ $settingsXaml = @"
         </StackPanel>
       </Border>
         </StackPanel>
+        <StackPanel Grid.Column="4">
+      <TextBlock Style="{StaticResource Head}" Text="Game overlay shows"/>
+      <WrapPanel x:Name="sOsdChecks"/>
+      <TextBlock Text="The overlay bar keeps a fixed width, so it never jumps around when numbers change." Foreground="#8CFFFFFF" FontSize="10.5" TextWrapping="Wrap" Margin="0,6,0,0"/>
+        </StackPanel>
       </Grid>
     </StackPanel>
   </Border>
@@ -700,7 +724,13 @@ function Sync-Settings {
     $s.sNone.Visibility = if ($cfg.WidgetHidden -and -not $cfg.Overlay) { 'Visible' } else { 'Collapsed' }
     $s.sLO.IsChecked = ($cfg.Look -ne 'Solid'); $s.sLS.IsChecked = ($cfg.Look -eq 'Solid')
     $s.sFree.IsChecked = [bool]$cfg.OverlayFree
+    $s.sC24.IsChecked = [bool]$cfg.Clock24; $s.sC12.IsChecked = -not [bool]$cfg.Clock24
     Sync-PosRadios
+}
+function Set-Clock($is24) {
+    $cfg.Clock24 = [bool]$is24; Save-Cfg
+    foreach ($o in $script:osds) { Apply-OsdMetrics $o }
+    Sync-Settings
 }
 function Set-Look($lk) { $cfg.Look = $lk; Save-Cfg; Apply-Look; Sync-Settings; Refresh-Menu }
 function Sync-PosRadios { if ($script:posRadios) { foreach ($rb in $script:posRadios) { $rb.IsChecked = ([int]$cfg.OverlayPos -eq [int]$rb.Tag) } } }
@@ -743,7 +773,7 @@ function Open-Settings {
     $sw = [Windows.Markup.XamlReader]::Parse($settingsXaml)
     $script:sWin = $sw
     $script:sUi = @{}
-    foreach ($n in 'sRoot','sClose','sChecks','sR1','sR2','sR5','sSelf','sPos','sFree','sDisks','sShowW','sShowO','sNone','sLO','sLS') { $script:sUi[$n] = $sw.FindName($n) }
+    foreach ($n in 'sRoot','sClose','sChecks','sR1','sR2','sR5','sSelf','sPos','sFree','sDisks','sShowW','sShowO','sNone','sLO','sLS','sC24','sC12','sOsdChecks') { $script:sUi[$n] = $sw.FindName($n) }
     $s = $script:sUi
 
     $s.sShowW.Add_Click({ if ([bool]$this.IsChecked -eq [bool]$cfg.WidgetHidden) { Toggle-Widget } })
@@ -759,7 +789,7 @@ function Open-Settings {
     }
 
     $script:posRadios = @()
-    for ($i = 0; $i -le 5; $i++) {
+    foreach ($i in $posOrder) {
         $rb = New-Object Windows.Controls.RadioButton
         $rb.GroupName = 'pos'; $rb.Content = $posNames[$i]; $rb.Tag = $i
         $rb.IsChecked = ([int]$cfg.OverlayPos -eq $i)
@@ -769,6 +799,14 @@ function Open-Settings {
     }
     $s.sFree.IsChecked = [bool]$cfg.OverlayFree
     $s.sFree.Add_Click({ Set-Free ([bool]$this.IsChecked) })
+
+    foreach ($k in $osdLabels.Keys) {
+        $cb = New-Object Windows.Controls.CheckBox
+        $cb.Content = $osdLabels[$k]; $cb.Tag = $k; $cb.IsChecked = [bool]$cfg.OsdShow.$k
+        $cb.Add_Click({ $cfg.OsdShow.($this.Tag) = [bool]$this.IsChecked; Apply-Metrics; Save-Cfg })
+        [void]$s.sOsdChecks.Children.Add($cb)
+    }
+    $s.sC24.Add_Click({ Set-Clock $true }); $s.sC12.Add_Click({ Set-Clock $false })
 
     Fill-DiskChecks
 
@@ -852,8 +890,8 @@ function Refresh-Menu {
     $mi.mLook.Header = 'Look: ' + $cfg.Look + '  (click to switch)'
     $mi.mHide.IsChecked = -not [bool]$cfg.WidgetHidden
 }
-function Toggle-Overlay { $cfg.Overlay = -not $cfg.Overlay; if (-not $cfg.Overlay) { $cfg.OverlayFree = $false }; Save-Cfg; Build-Osds; Sync-Settings; Refresh-Menu }
-function Cycle-Pos { Set-Pos (([int]$cfg.OverlayPos + 1) % 6) }
+function Toggle-Overlay { $cfg.Overlay = -not $cfg.Overlay; if (-not $cfg.Overlay) { $cfg.OverlayFree = $false }; Save-Cfg; Build-Osds; $sync.Want = Want-Table; Sync-Settings; Refresh-Menu }
+function Cycle-Pos { $k = [array]::IndexOf($posOrder, [int]$cfg.OverlayPos); Set-Pos $posOrder[($k + 1) % $posOrder.Count] }
 function Toggle-Widget {
     $cfg.WidgetHidden = -not $cfg.WidgetHidden; Save-Cfg
     if ($cfg.WidgetHidden) { $win.Hide() } else { $win.Show() }
@@ -952,13 +990,13 @@ $timer.Add_Tick({
     $d = $sync.Data
     if (-not $d) { return }
     $S = $cfg.Show
-    $clock = [DateTime]::Now.ToString('HH:mm')
+    $clock = if ($cfg.Clock24) { [DateTime]::Now.ToString('HH:mm') } else { [DateTime]::Now.ToString('h:mm tt', [Globalization.CultureInfo]::InvariantCulture) }
     $gpu = [Math]::Max(0, $d.Gpu)
     $gpuTxt = if ($d.Gpu -ge 0) { '{0:N0}%' -f $gpu } else { 'n/a' }
     $ramPct = if ($d.RamTot) { $d.RamUsed / $d.RamTot * 100 } else { 0 }
     $cpuTxt = '{0:N0}%' -f $d.Cpu
     $ramTxt = '{0:N0}%' -f $ramPct
-    $netTxt = if ($S.Net) { '{0} {1}/s  {2} {3}/s' -f $arrowDown, (Fmt-Bytes $d.Down), $arrowUp, (Fmt-Bytes $d.Up) } else { '' }
+    $netTxt = if ($null -ne $d.Down) { '{0} {1}/s  {2} {3}/s' -f $arrowDown, (Fmt-Bytes $d.Down), $arrowUp, (Fmt-Bytes $d.Up) } else { '' }
 
     foreach ($o in $script:osds) {
         Set-Text $o.Cpu $cpuTxt; $o.Cpu.Foreground = if ($d.Cpu -gt 85) { $hot } else { $white }
@@ -966,6 +1004,8 @@ $timer.Add_Tick({
         Set-Text $o.Ram $ramTxt; $o.Ram.Foreground = if ($ramPct -gt 85) { $hot } else { $white }
         Set-Text $o.Seg.Net $netTxt
         Set-Text $o.Seg.TopC $(if ($d.TopC) { $d.TopC } else { '' })
+        Set-Text $o.Seg.TopR $(if ($d.TopR) { '{0}  {1}' -f $d.TopR, (Fmt-Bytes $d.TopRBytes) } else { '' })
+        Set-Text $o.Seg.Batt $(if ($null -eq $d.NoBatt -or $d.NoBatt) { '' } else { ('{0:N0}%' -f $d.Batt) + $(if ($d.Charging) { ' ' + [char]0x26A1 } else { '' }) })
         Set-Text $o.Seg.Clock $clock
         Place-Osd $o
         [LhNative]::Top($o.H)
