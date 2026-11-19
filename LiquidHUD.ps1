@@ -1,14 +1,14 @@
 # =====================================================================
-#  LiquidHUD v6  -  glass system monitor widget + game overlay for Windows
+#  LiquidHUD v7  -  glass system monitor widget + game overlay for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
 #  HOTKEYS (work even inside games):
-#    Ctrl+Alt+S  = open Settings (opacity, metrics, refresh rate)
+#    Ctrl+Alt+S  = open Settings (show widget/overlay, look, metrics, disks, refresh rate)
 #    Ctrl+Alt+O  = toggle game overlay (small click-through bar on top of everything)
 #    Ctrl+Alt+P  = cycle overlay position
 #    Ctrl+Alt+M  = free move overlay (drag it anywhere, press again to lock)
-#    Ctrl+Alt+H  = hide/show the big widget
+#    Ctrl+Alt+H  = big widget on/off
 #  Widget: drag = move | double-click = Task Manager | right-click = menu
 #
 #  Lightweight by design:
@@ -28,9 +28,6 @@ Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 public static class LhNative {
-    [StructLayout(LayoutKind.Sequential)] public struct MARGINS { public int L, R, T, B; }
-    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
-    [DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr h, ref MARGINS m);
     [DllImport("kernel32.dll")] static extern IntPtr GetConsoleWindow();
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
     [DllImport("psapi.dll")] static extern bool EmptyWorkingSet(IntPtr p);
@@ -39,13 +36,6 @@ public static class LhNative {
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")] static extern IntPtr SetWindowLongPtr(IntPtr h, int i, IntPtr v);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint f);
 
-    static void Set(IntPtr h, int attr, int v) { DwmSetWindowAttribute(h, attr, ref v, 4); }
-
-    public static void Glass(IntPtr h, int backdrop) {
-        MARGINS m = new MARGINS(); m.L = m.R = m.T = m.B = -1;
-        DwmExtendFrameIntoClientArea(h, ref m);
-        Set(h, 20, 1); Set(h, 33, 2); Set(h, 34, 0x00707070); Set(h, 38, backdrop);
-    }
     public static void MakeOverlay(IntPtr h) {
         long ex = GetWindowLongPtr(h, -20).ToInt64();
         ex |= 0x20 | 0x80 | 0x08000000 | 0x80000;
@@ -81,7 +71,6 @@ public class LhHotkeys : System.Windows.Forms.NativeWindow, IDisposable {
 [LhNative]::HideConsole()
 try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch {}
 
-$modern = [Environment]::OSVersion.Version.Build -ge 22621
 
 # ---------- metric list ----------
 $metrics = [ordered]@{
@@ -110,8 +99,8 @@ $cfgFile = Join-Path $cfgDir 'settings.json'
 if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir | Out-Null }
 $showDefault = [ordered]@{}; foreach ($k in $metrics.Keys) { $showDefault[$k] = $true }
 $cfg = [pscustomobject]@{
-    Left = -1; Top = 40; Topmost = $false; Style = 'Clear'; Overlay = $false; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayX = 0.98; OverlayY = 0.01
-    WidgetHidden = $false; WidgetOpacity = 55; OverlayOpacity = 45; Interval = 2
+    Left = -1; Top = 40; Topmost = $false; Look = 'Outline'; Overlay = $false; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayX = 0.98; OverlayY = 0.01
+    WidgetHidden = $false; Interval = 2
     Show = [pscustomobject]$showDefault
     Disks = @{}
 }
@@ -127,8 +116,7 @@ if (@(1, 2, 5) -notcontains [int]$cfg.Interval) { $cfg.Interval = 2 }
 if ([int]$cfg.OverlayPos -lt 0 -or [int]$cfg.OverlayPos -gt 5) { $cfg.OverlayPos = 2 }
 $cfg.OverlayFree = $false
 foreach ($dv in $script:drives) { if (-not $cfg.Disks.ContainsKey($dv.Letter)) { $cfg.Disks[$dv.Letter] = $true } }
-if (@('Clear', 'Acrylic', 'Mica') -notcontains $cfg.Style) { $cfg.Style = 'Clear' }
-if (-not $modern) { $cfg.Style = 'Clear' }
+if (@('Outline', 'Solid') -notcontains $cfg.Look) { $cfg.Look = 'Outline' }
 function Save-Cfg { try { $cfg | ConvertTo-Json -Depth 3 | Set-Content -Path $cfgFile -Encoding UTF8 } catch {} }
 function Want-Table {
     $w = @{}; foreach ($k in $metrics.Keys) { $w[$k] = [bool]$cfg.Show.$k }
@@ -315,21 +303,9 @@ function Info($id, $label) {
 "@
 }
 
-$chromeXaml = '<WindowChrome.WindowChrome><WindowChrome GlassFrameThickness="-1" CaptionHeight="0" ResizeBorderThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/></WindowChrome.WindowChrome>'
 $bc = New-Object Windows.Media.BrushConverter
 function Brush($hex) { $b = $bc.ConvertFromString($hex); $b.Freeze(); $b }
 function Win-Handle($w) { (New-Object Windows.Interop.WindowInteropHelper($w)).EnsureHandle() }
-
-# Style: Clear = real see-through (layered window). Acrylic / Mica = Windows 11 blur (DWM).
-function Use-Dwm { $modern -and $cfg.Style -ne 'Clear' }
-function Backdrop-Id { if ($cfg.Style -eq 'Mica') { 2 } else { 3 } }
-function Apply-Glass($w, $bd) {
-    if (-not $modern) { return }
-    $h = Win-Handle $w
-    $src = [Windows.Interop.HwndSource]::FromHwnd($h)
-    if ($src) { $src.CompositionTarget.BackgroundColor = [Windows.Media.Colors]::Transparent }
-    [LhNative]::Glass($h, [int]$bd)
-}
 
 function Disk-Rows {
     $out = ''
@@ -337,13 +313,8 @@ function Disk-Rows {
     $out
 }
 function Widget-Xaml {
-    if (Use-Dwm) {
-        $winAttrs = 'Width="300" SizeToContent="Height" WindowStyle="None" ResizeMode="NoResize" Background="Transparent"'
-        $chrome = $chromeXaml; $gridMargin = '0'; $radius = '0'; $edge = '0'
-    } else {
-        $winAttrs = 'Width="320" SizeToContent="Height" WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" Background="Transparent"'
-        $chrome = ''; $gridMargin = '10'; $radius = '22'; $edge = '1.2'
-    }
+    $winAttrs = 'Width="320" SizeToContent="Height" WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" Background="Transparent"'
+    $chrome = ''; $gridMargin = '10'; $radius = '22'; $edge = '1.2'
     @"
     <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -424,6 +395,7 @@ function Build-Widget {
     $script:rows = @{}
     foreach ($k in $metrics.Keys) { if ($k -ne 'Clock') { $script:rows[$k] = $w.FindName("${k}Row") } }
     $script:rows['Clock'] = $script:ui.Clock
+    $script:edgeSolid = $script:ui.Glass.BorderBrush
     $script:diskUi = @{}
     foreach ($dv in $script:drives) {
         $id = 'Disk' + $dv.Letter
@@ -436,10 +408,7 @@ function Build-Widget {
     if ($cfg.Top -lt 0 -or $cfg.Top -gt $wa.Bottom - 50) { $w.Top = 40 } else { $w.Top = $cfg.Top }
     $w.Topmost = [bool]$cfg.Topmost
 
-    $w.Add_SourceInitialized({
-        if (Use-Dwm) { Apply-Glass $script:win (Backdrop-Id) }
-        [LhNative]::ToolWindow((Win-Handle $script:win))
-    })
+    $w.Add_SourceInitialized({ [LhNative]::ToolWindow((Win-Handle $script:win)) })
     $w.Add_MouseLeftButtonDown({
         param($s, $e)
         if ($e.ClickCount -ge 2) { Start-Process taskmgr.exe; return }
@@ -447,7 +416,7 @@ function Build-Widget {
         $cfg.Left = $script:win.Left; $cfg.Top = $script:win.Top; Save-Cfg
     })
     if ($script:menu) { $w.ContextMenu = $script:menu }
-    Apply-Opacity
+    Apply-Look
     Apply-RowVisibility
     if (-not $cfg.WidgetHidden) { $w.Show() }
 }
@@ -480,7 +449,8 @@ $osdXaml = @"
 $osdKeys = @('Cpu', 'Gpu', 'Ram', 'Net', 'TopC', 'Clock')
 $posNames = @('Top left', 'Top center', 'Top right', 'Bottom left', 'Bottom right', 'Custom')
 $script:osds = @()
-$freeEdge = Brush '#9FE1CB'; $osdEdge = Brush '#40FFFFFF'
+$freeEdge = Brush '#9FE1CB'; $osdEdge = Brush '#40FFFFFF'; $outlineEdge = Brush '#BFFFFFFF'
+$solidFill = Brush '#F20C0E16'; $clearFill = Brush '#00000000'; $hitFill = Brush '#03000000'; $grabFill = Brush '#40000000'
 $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $dpi = $g.DpiX / 96.0; $g.Dispose()
 
 function Place-Osd($o) {
@@ -505,7 +475,7 @@ function Place-Osd($o) {
 }
 function Apply-OsdMetrics($o) {
     foreach ($k in $osdKeys) { $o.Seg[$k].Visibility = if ($cfg.Show.$k) { 'Visible' } else { 'Collapsed' } }
-    Apply-OsdOpacity $o
+    Apply-OsdLook $o
 }
 function Build-Osds {
     foreach ($o in $script:osds) { try { $o.Win.Close() } catch {} }
@@ -550,12 +520,12 @@ function Apply-Free {
         [LhNative]::ClickThrough($o.H, -not $cfg.OverlayFree)
         $o.Win.IsHitTestVisible = [bool]$cfg.OverlayFree
         if ($cfg.OverlayFree) {
-            $o.Bg.BorderBrush = $freeEdge; $o.Bg.BorderThickness = 1.6; $o.Bg.Opacity = [Math]::Max(0.35, $o.Bg.Opacity)
+            $o.Bg.BorderBrush = $freeEdge; $o.Bg.BorderThickness = 1.6
+            if ($cfg.Look -eq 'Outline') { $o.Bg.Background = $grabFill }   # something to grab
             $o.Win.Cursor = [Windows.Input.Cursors]::SizeAll
         } else {
-            $o.Bg.BorderBrush = $osdEdge; $o.Bg.BorderThickness = 1
             $o.Win.Cursor = $null
-            Apply-OsdOpacity $o
+            Apply-OsdLook $o
             Place-Osd $o
         }
     }
@@ -565,38 +535,40 @@ function Set-Free($on) {
     $cfg.OverlayFree = [bool]$on
     Apply-Free
     Save-Cfg
-    if ($script:sUi) { $script:sUi.sFree.IsChecked = [bool]$on; Sync-PosRadios }
+    Sync-Settings
     if ($mi) { Refresh-Menu }
 }
 
 # =====================================================================
-#  OPACITY + METRIC VISIBILITY
+#  LOOK (Outline / Solid) + METRIC VISIBILITY
 # =====================================================================
-# Slider 0..100. Clear style: background really disappears, text stays crisp (with a shadow).
-function Apply-OsdOpacity($o) {
-    $t = [Math]::Max(0, [Math]::Min(1, [double]$cfg.OverlayOpacity / 100))
-    $o.Win.Opacity = 1
-    $o.Bg.Opacity = $t
-    $o.Body.Effect = if ($t -lt 0.6) { $textShadow } else { $null }
-}
-function Apply-Opacity {
-    if (-not $script:ui) { return }
-    $t = [Math]::Max(0, [Math]::Min(1, [double]$cfg.WidgetOpacity / 100))   # 0 = fully clear, 1 = solid
-    if (Use-Dwm) {
-        # blur mode: Windows always keeps its own frosted tint
-        $script:ui.Glass.Background = Brush ('#{0:X2}0C0E16' -f [int](0x08 + $t * 0xD0))
-        $script:ui.Glass.Opacity = 1
-        $script:ui.Sheen.Opacity = 0.3 + 0.7 * $t
-        $script:ui.Content.Effect = $null
+# Look: Outline = text + frame only (see straight through to what's behind)
+#       Solid   = text + fully coloured background + frame
+function Apply-OsdLook($o) {
+    $o.Win.Opacity = 1; $o.Bg.Opacity = 1
+    if ($cfg.Look -eq 'Solid') {
+        $o.Bg.Background = $solidFill; $o.Bg.BorderBrush = $osdEdge; $o.Bg.BorderThickness = 1
+        $o.Body.Effect = $null
     } else {
-        # clear mode: 0% = text + a faint ghost of the box, 100% = solid
-        $script:ui.Glass.Background = Brush '#F00C0E16'
-        $script:ui.Glass.Opacity = 0.10 + 0.90 * $t
-        $script:ui.Sheen.Opacity = 0.35 + 0.65 * $t
-        $script:ui.Content.Effect = if ($t -lt 0.6) { $textShadow } else { $null }
+        $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdge; $o.Bg.BorderThickness = 1.2
+        $o.Body.Effect = $textShadow
     }
-    $script:ui.Content.Opacity = 1
-    foreach ($o in $script:osds) { Apply-OsdOpacity $o }
+}
+function Apply-Look {
+    if ($script:ui) {
+        $g = $script:ui.Glass
+        if ($cfg.Look -eq 'Solid') {
+            $g.Background = $solidFill; $g.BorderBrush = $script:edgeSolid; $g.BorderThickness = 1.2
+            $script:ui.Sheen.Visibility = 'Visible'
+            $script:ui.Content.Effect = $null
+        } else {
+            $g.Background = $hitFill; $g.BorderBrush = $outlineEdge; $g.BorderThickness = 1.4   # 1% fill so it can still be dragged
+            $script:ui.Sheen.Visibility = 'Collapsed'
+            $script:ui.Content.Effect = $textShadow
+        }
+    }
+    foreach ($o in $script:osds) { Apply-OsdLook $o }
+    if ($cfg.OverlayFree) { Apply-Free }
 }
 function Apply-RowVisibility {
     if (-not $script:rows) { return }
@@ -615,9 +587,8 @@ function Apply-Metrics {
 $settingsXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LiquidHUD Settings" $(if ($modern) { 'Width="680" SizeToContent="Height" WindowStyle="None" ResizeMode="NoResize" Background="Transparent"' } else { 'Width="680" SizeToContent="Height" WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" Background="Transparent"' })
+        Title="LiquidHUD Settings" Width="680" SizeToContent="Height" WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" Background="Transparent"
         Topmost="True" WindowStartupLocation="CenterScreen" FontFamily="Segoe UI Variable Display, Segoe UI">
-  $(if ($modern) { $chromeXaml } else { '' })
   <Window.Resources>
     <Style TargetType="CheckBox">
       <Setter Property="Foreground" Value="White"/><Setter Property="FontSize" Value="12.5"/>
@@ -664,7 +635,7 @@ $settingsXaml = @"
       <Setter Property="Foreground" Value="#B3FFFFFF"/><Setter Property="FontSize" Value="11.5"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,16,0,8"/>
     </Style>
   </Window.Resources>
-  <Border x:Name="sRoot" Background="$(if ($modern) { '#990C0E16' } else { '#F20C0E16' })" CornerRadius="$(if ($modern) { '0' } else { '16' })" BorderBrush="#33FFFFFF" BorderThickness="$(if ($modern) { '0' } else { '1' })" Padding="22,16,22,20">
+  <Border x:Name="sRoot" Background="#F50C0E16" CornerRadius="16" BorderBrush="#40FFFFFF" BorderThickness="1" Padding="22,16,22,20">
     <StackPanel>
       <Grid>
         <TextBlock Text="Settings" Foreground="White" FontSize="18" FontWeight="Bold"/>
@@ -675,31 +646,24 @@ $settingsXaml = @"
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="28"/><ColumnDefinition Width="300"/></Grid.ColumnDefinitions>
         <StackPanel Grid.Column="0">
-      <TextBlock Style="{StaticResource Head}" Text="Widget background   (left = clear, right = solid)"/>
-      <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="46"/></Grid.ColumnDefinitions>
-        <Slider x:Name="sWop" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" IsMoveToPointEnabled="True" VerticalAlignment="Center"/>
-        <TextBlock x:Name="sWopVal" Grid.Column="1" Foreground="White" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-      </Grid>
-      <TextBlock Style="{StaticResource Head}" Text="Game overlay background"/>
-      <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="46"/></Grid.ColumnDefinitions>
-        <Slider x:Name="sOop" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" IsMoveToPointEnabled="True" VerticalAlignment="Center"/>
-        <TextBlock x:Name="sOopVal" Grid.Column="1" Foreground="White" FontWeight="Bold" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-      </Grid>
+      <TextBlock Style="{StaticResource Head}" Text="Show"/>
+      <StackPanel Orientation="Horizontal">
+        <CheckBox x:Name="sShowW" Content="Big widget"/>
+        <CheckBox x:Name="sShowO" Content="Game overlay"/>
+      </StackPanel>
+      <TextBlock x:Name="sNone" Text="Both off: press Ctrl+Alt+S to get back here" Foreground="#FAC775" FontSize="11" Margin="0,0,0,4" Visibility="Collapsed"/>
+
+      <TextBlock Style="{StaticResource Head}" Text="Look"/>
+      <StackPanel Orientation="Horizontal">
+        <RadioButton x:Name="sLO" GroupName="look" Content="Outline  (text + frame)"/>
+        <RadioButton x:Name="sLS" GroupName="look" Content="Solid  (filled)"/>
+      </StackPanel>
 
       <TextBlock Style="{StaticResource Head}" Text="Overlay position"/>
       <WrapPanel x:Name="sPos"/>
       <CheckBox x:Name="sFree" Width="300" Margin="0,6,0,0" Content="Free move  (drag the overlay, untick to lock it)"/>
 
-      <StackPanel x:Name="sStyleBox">
-        <TextBlock Style="{StaticResource Head}" Text="Style"/>
-        <StackPanel Orientation="Horizontal">
-          <RadioButton x:Name="sSC" GroupName="st" Content="Clear"/>
-          <RadioButton x:Name="sSA" GroupName="st" Content="Acrylic blur"/>
-          <RadioButton x:Name="sSM" GroupName="st" Content="Mica"/>
-        </StackPanel>
-      </StackPanel>
+
         </StackPanel>
         <StackPanel Grid.Column="2">
       <TextBlock Style="{StaticResource Head}" Text="What to monitor"/>
@@ -728,6 +692,17 @@ $settingsXaml = @"
 </Window>
 "@
 $script:sWin = $null
+function Sync-Settings {
+    if (-not $script:sUi) { return }
+    $s = $script:sUi
+    $s.sShowW.IsChecked = -not [bool]$cfg.WidgetHidden
+    $s.sShowO.IsChecked = [bool]$cfg.Overlay
+    $s.sNone.Visibility = if ($cfg.WidgetHidden -and -not $cfg.Overlay) { 'Visible' } else { 'Collapsed' }
+    $s.sLO.IsChecked = ($cfg.Look -ne 'Solid'); $s.sLS.IsChecked = ($cfg.Look -eq 'Solid')
+    $s.sFree.IsChecked = [bool]$cfg.OverlayFree
+    Sync-PosRadios
+}
+function Set-Look($lk) { $cfg.Look = $lk; Save-Cfg; Apply-Look; Sync-Settings; Refresh-Menu }
 function Sync-PosRadios { if ($script:posRadios) { foreach ($rb in $script:posRadios) { $rb.IsChecked = ([int]$cfg.OverlayPos -eq [int]$rb.Tag) } } }
 function Set-Pos($i) {
     if ($cfg.OverlayFree) { $cfg.OverlayFree = $false; Apply-Free; if ($script:sUi) { $script:sUi.sFree.IsChecked = $false } }
@@ -764,17 +739,17 @@ function Refresh-Drives {
     }
 }
 function Open-Settings {
-    if ($script:sWin) { Refresh-Drives; Fill-DiskChecks; Sync-PosRadios; $script:sWin.Show(); $script:sWin.Activate() | Out-Null; return }
+    if ($script:sWin) { Refresh-Drives; Fill-DiskChecks; Sync-Settings; $script:sWin.Show(); $script:sWin.Activate() | Out-Null; return }
     $sw = [Windows.Markup.XamlReader]::Parse($settingsXaml)
     $script:sWin = $sw
     $script:sUi = @{}
-    foreach ($n in 'sRoot','sClose','sWop','sWopVal','sOop','sOopVal','sChecks','sR1','sR2','sR5','sSelf','sStyleBox','sSC','sSA','sSM','sPos','sFree','sDisks') { $script:sUi[$n] = $sw.FindName($n) }
+    foreach ($n in 'sRoot','sClose','sChecks','sR1','sR2','sR5','sSelf','sPos','sFree','sDisks','sShowW','sShowO','sNone','sLO','sLS') { $script:sUi[$n] = $sw.FindName($n) }
     $s = $script:sUi
 
-    $s.sWop.Value = [double]$cfg.WidgetOpacity;  $s.sWopVal.Text = "$([int]$cfg.WidgetOpacity)%"
-    $s.sOop.Value = [double]$cfg.OverlayOpacity; $s.sOopVal.Text = "$([int]$cfg.OverlayOpacity)%"
-    $s.sWop.Add_ValueChanged({ $cfg.WidgetOpacity = [int]$this.Value; $script:sUi.sWopVal.Text = "$($cfg.WidgetOpacity)%"; Apply-Opacity })
-    $s.sOop.Add_ValueChanged({ $cfg.OverlayOpacity = [int]$this.Value; $script:sUi.sOopVal.Text = "$($cfg.OverlayOpacity)%"; Apply-Opacity })
+    $s.sShowW.Add_Click({ if ([bool]$this.IsChecked -eq [bool]$cfg.WidgetHidden) { Toggle-Widget } })
+    $s.sShowO.Add_Click({ if ([bool]$this.IsChecked -ne [bool]$cfg.Overlay) { Toggle-Overlay } })
+    $s.sLO.Tag = 'Outline'; $s.sLS.Tag = 'Solid'
+    $s.sLO.Add_Click({ Set-Look 'Outline' }); $s.sLS.Add_Click({ Set-Look 'Solid' })
 
     foreach ($k in $metrics.Keys) {
         $cb = New-Object Windows.Controls.CheckBox
@@ -803,17 +778,11 @@ function Open-Settings {
         $p[0].Add_Checked({ $cfg.Interval = [int]$this.Tag; $sync.Interval = $cfg.Interval; $timer.Interval = [TimeSpan]::FromSeconds($cfg.Interval); Save-Cfg })
     }
 
-    if (-not $modern) { $s.sStyleBox.Visibility = 'Collapsed' }
-    switch ($cfg.Style) { 'Acrylic' { $s.sSA.IsChecked = $true } 'Mica' { $s.sSM.IsChecked = $true } default { $s.sSC.IsChecked = $true } }
-    foreach ($p in @(@($s.sSC, 'Clear'), @($s.sSA, 'Acrylic'), @($s.sSM, 'Mica'))) {
-        $p[0].Tag = $p[1]
-        $p[0].Add_Checked({ Set-Style $this.Tag })
-    }
+    Sync-Settings
 
     $s.sClose.Add_MouseLeftButtonUp({ $script:sWin.Hide(); Save-Cfg })
     $s.sRoot.Add_MouseLeftButtonDown({ param($a, $e); if ($e.OriginalSource -eq $script:sUi.sRoot) { try { $script:sWin.DragMove() } catch {} } })
     $sw.Add_Closing({ param($a, $e); $e.Cancel = $true; $script:sWin.Hide(); Save-Cfg })
-    $sw.Add_SourceInitialized({ Apply-Glass $script:sWin 3 })
     $sw.Show(); $sw.Activate() | Out-Null
 }
 
@@ -859,8 +828,8 @@ $menuXaml = @"
   <MenuItem x:Name="mPos"      Header="Overlay position" InputGestureText="Ctrl+Alt+P"/>
   <MenuItem x:Name="mFree"     Header="Free move overlay" InputGestureText="Ctrl+Alt+M"/>
   <MenuItem x:Name="mAll"      Header="Overlay on all monitors"/>
-  <MenuItem x:Name="mHide"     Header="Hide widget" InputGestureText="Ctrl+Alt+H"/>
-  <MenuItem x:Name="mGlass"    Header="Style: Clear"/>
+  <MenuItem x:Name="mHide"     Header="Big widget" InputGestureText="Ctrl+Alt+H"/>
+  <MenuItem x:Name="mLook"     Header="Look: Outline"/>
   <MenuItem x:Name="mTop"      Header="Widget always on top"/>
   <MenuItem x:Name="mStartup"  Header="Start with Windows"/>
   <MenuItem x:Name="mTask"     Header="Task Manager"/>
@@ -870,7 +839,7 @@ $menuXaml = @"
 $script:menu = [Windows.Markup.XamlReader]::Parse($menuXaml)
 $menu = $script:menu
 $mi = @{}
-foreach ($n in 'mSettings','mOverlay','mPos','mFree','mAll','mHide','mGlass','mTop','mStartup','mTask','mExit') { $mi[$n] = $menu.FindName($n) }
+foreach ($n in 'mSettings','mOverlay','mPos','mFree','mAll','mHide','mLook','mTop','mStartup','mTask','mExit') { $mi[$n] = $menu.FindName($n) }
 $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'LiquidHUD.lnk'
 
 function Refresh-Menu {
@@ -880,14 +849,15 @@ function Refresh-Menu {
     $mi.mPos.Header = 'Overlay position: ' + $posNames[[int]$cfg.OverlayPos]
     $mi.mTop.IsChecked = [bool]$cfg.Topmost
     $mi.mStartup.IsChecked = Test-Path $startupLnk
-    $mi.mGlass.Header = 'Style: ' + $cfg.Style
-    $mi.mGlass.Visibility = if ($modern) { 'Visible' } else { 'Collapsed' }
+    $mi.mLook.Header = 'Look: ' + $cfg.Look + '  (click to switch)'
+    $mi.mHide.IsChecked = -not [bool]$cfg.WidgetHidden
 }
-function Toggle-Overlay { $cfg.Overlay = -not $cfg.Overlay; if (-not $cfg.Overlay) { $cfg.OverlayFree = $false }; Save-Cfg; Build-Osds; Refresh-Menu }
+function Toggle-Overlay { $cfg.Overlay = -not $cfg.Overlay; if (-not $cfg.Overlay) { $cfg.OverlayFree = $false }; Save-Cfg; Build-Osds; Sync-Settings; Refresh-Menu }
 function Cycle-Pos { Set-Pos (([int]$cfg.OverlayPos + 1) % 6) }
 function Toggle-Widget {
     $cfg.WidgetHidden = -not $cfg.WidgetHidden; Save-Cfg
-    if ($cfg.WidgetHidden) { $win.Hide() } else { $win.Show(); if (Use-Dwm) { Apply-Glass $win (Backdrop-Id) } }
+    if ($cfg.WidgetHidden) { $win.Hide() } else { $win.Show() }
+    Sync-Settings; Refresh-Menu
     $sync.Want = Want-Table
 }
 function Quit-All {
@@ -906,10 +876,7 @@ $mi.mPos.Add_Click({ Cycle-Pos })
 $mi.mFree.Add_Click({ Set-Free (-not $cfg.OverlayFree) })
 $mi.mAll.Add_Click({ $cfg.OverlayAll = -not $cfg.OverlayAll; Save-Cfg; Build-Osds; Refresh-Menu })
 $mi.mHide.Add_Click({ Toggle-Widget })
-$mi.mGlass.Add_Click({
-    $next = @{ 'Clear' = 'Acrylic'; 'Acrylic' = 'Mica'; 'Mica' = 'Clear' }[$cfg.Style]
-    Set-Style $next
-})
+$mi.mLook.Add_Click({ Set-Look $(if ($cfg.Look -eq 'Solid') { 'Outline' } else { 'Solid' }) })
 $mi.mTop.Add_Click({ $cfg.Topmost = -not $cfg.Topmost; $win.Topmost = [bool]$cfg.Topmost; Save-Cfg; Refresh-Menu })
 $mi.mStartup.Add_Click({
     if (-not (Test-Path $startupLnk)) {
@@ -925,15 +892,6 @@ $mi.mStartup.Add_Click({
 $mi.mTask.Add_Click({ Start-Process taskmgr.exe })
 $mi.mExit.Add_Click({ Quit-All })
 $menu.Add_Opened({ Refresh-Menu })
-function Set-Style($st) {
-    if ($cfg.Style -eq $st) { return }
-    $cfg.Style = $st; Save-Cfg
-    Build-Widget
-    Refresh-Menu
-    if ($script:sWin -and $script:sUi) {
-        $script:sUi.sSC.IsChecked = ($st -eq 'Clear'); $script:sUi.sSA.IsChecked = ($st -eq 'Acrylic'); $script:sUi.sSM.IsChecked = ($st -eq 'Mica')
-    }
-}
 
 # ---------- global hotkeys ----------
 $hk = New-Object LhHotkeys
@@ -1069,7 +1027,7 @@ if ($cfg.WidgetHidden -and -not $cfg.Overlay) { $cfg.WidgetHidden = $false }
 Build-Widget
 Build-Osds
 Apply-Metrics
-Apply-Opacity
+Apply-Look
 $timer.Start()
 [Windows.Threading.Dispatcher]::Run()
 try { [void]$bg.EndInvoke($bgHandle) } catch {}
