@@ -96,11 +96,13 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\LiquidHUD.ps1
 | Setting | What it does |
 |---|---|
 | **Show** | Tick **Big widget** and/or **Game overlay**. If both are off, press `Ctrl+Alt+S` to come back |
-| **Look** | **Outline**: text and a frame only, you see straight through to what's behind. **Solid**: text on a fully coloured background with a frame |
-| **Overlay position** | Top left, Top center, Top right, Bottom left, Bottom right, or Custom (where you last dropped it) |
+| **Look** | **Outline**: text and a thin frame only (1 px, white at 45 % opacity), so you see straight through to what's behind. **Solid**: text on a fully coloured background with a frame |
+| **Clock** | **24h** (`18:46`) or **12h** (`6:46 PM`), for both the widget and the overlay |
+| **Overlay position** | Top left, Top center, Top right, Bottom left, **Bottom center**, Bottom right, or Custom (where you last dropped it). Centered positions stay put because the bar has a fixed width |
 | **Free move** | Tick it, then drag the overlay anywhere (it gets a dashed outline). Untick it and the overlay locks in place and goes back to click-through, so it never blocks what's behind it |
 | **Disks** | Every ready fixed or removable drive is listed with its label and size. Tick the ones you want on the widget. New drives show up the next time you open Settings |
-| **What to monitor** | Tick a metric to show and collect it. Untick it to hide it and stop collecting it |
+| **Big widget shows** | Tick a metric to show it on the widget |
+| **Game overlay shows** | A separate list for the overlay: CPU, GPU, RAM, Network, Top CPU app, Top RAM app, Battery, Clock. A metric is only collected if the widget or the overlay needs it |
 | **Refresh rate** | 1 s, 2 s or 5 s. Slower uses less CPU |
 | **LiquidHUD itself is using** | Live RAM and CPU used by the widget itself |
 
@@ -114,7 +116,7 @@ Settings are saved to `%APPDATA%\LiquidHUD\settings.json`.
 ![Outline overlay free-moved under the browser's address bar](docs/images/browser.png)
 
 1. Press **`Ctrl+Alt+O`** to turn the overlay on.
-2. Press **`Ctrl+Alt+P`** to cycle its pinned position: top left, top center, top right, bottom left, bottom right, custom.
+2. Press **`Ctrl+Alt+P`** to cycle its pinned position: top left, top center, top right, bottom left, bottom center, bottom right, custom.
    - **Or put it anywhere:** press **`Ctrl+Alt+M`** (or tick **Free move** in Settings), drag the bar where you want it, then press `Ctrl+Alt+M` again to lock it. Its spot is saved as a fraction of the screen, so it lands in the same place on every monitor.
 3. Press **`Ctrl+Alt+H`** to turn the big widget off so only the overlay stays (or untick **Big widget** in Settings).
 4. If the bar sits over something you need to see, like browser tabs, use the **Outline** look and/or **Free move** it out of the way.
@@ -218,7 +220,8 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 
 | Version | What changed | Issues |
 |---|---|---|
-| **v7** | Clear rendering only: Acrylic, Mica and the background sliders are removed. Added the **Outline / Solid** look and **Show** toggles for the widget and the overlay | #5, #6, #7 |
+| **v8** | 12h / 24h clock, **Bottom center** position, a fixed-width overlay that no longer jumps when centered, a separate metric list for the overlay, and a thinner Outline frame | #9, #10, #11, #12 |
+| v7 | Clear rendering only: Acrylic, Mica and the background sliders are removed. Added the **Outline / Solid** look and **Show** toggles for the widget and the overlay | #5, #6, #7 |
 | v6 | Every disk detected with a tick box each. Overlay can be pinned or free-moved. Faint box kept at 0 % | #2, #3, #4 |
 | v5 | Clear style with real transparency | #1 |
 | v4 | Settings window, metric picker, refresh rate, resource savings | |
