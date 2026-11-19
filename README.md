@@ -1,11 +1,11 @@
 # LiquidHUD
 
-**A glass-style system monitor widget and game overlay for Windows, built from scratch with nothing but PowerShell and WPF.**
+**A see-through system monitor widget and game overlay for Windows, built from scratch with nothing but PowerShell and WPF.**
 No Rainmeter, no HWiNFO, no installer, no admin rights. One `.ps1` file.
 
-![LiquidHUD on the desktop: glass widget plus the overlay bar in the top-right corner](docs/images/hero.png)
+![LiquidHUD on the desktop: widget and overlay bar in the Outline look](docs/images/hero.png)
 
-> Images in this README are rendered previews of the UI. Your glass will blur whatever wallpaper you have.
+> Images in this README are rendered previews of the UI.
 
 ---
 
@@ -15,22 +15,22 @@ No Rainmeter, no HWiNFO, no installer, no admin rights. One `.ps1` file.
 |---|---|
 | **Live stats** | CPU, GPU, RAM, **every disk in your PC**, network up/down, battery, uptime, top CPU app, top RAM app, clock |
 | **60-second graph** | CPU and GPU history |
-| **Clear or glass** | *Clear* gives real see-through transparency down to 0 %. *Acrylic* and *Mica* give the Windows 11 blur |
+| **Two looks** | **Outline** (text + frame, see straight through) or **Solid** (filled + frame), for both the widget and the overlay |
+| **Pick what's on screen** | Big widget, game overlay, or both |
 | **Game overlay** | Thin click-through bar that stays on top of every app, on every monitor |
 | **Global hotkeys** | Work while you're in a game |
-| **Background sliders** | One for the widget, one for the overlay. At 0 % the widget keeps the text plus a faint ghost of its box, and the overlay keeps only the text, with a shadow so it stays readable |
 | **Pin or free-move the overlay** | Pin it to any corner or the top center, or drag it anywhere and lock it there |
 | **Pick your metrics** | Tick what you want to see. Unticked metrics aren't collected at all |
 | **Lightweight** | Runs at BelowNormal priority with a 2 s refresh and periodic memory trim |
 | **Status pill** | Shows `chill` below 40 % CPU, `busy` from 40–85 %, and `hot!` above 85 % (numbers also turn red) |
 
-<p align="center"><img src="docs/images/widget.png" width="300" alt="Widget with CPU at 91% showing the hot! status"></p>
+![Outline look vs Solid look, widget and overlay](docs/images/looks.png)
 
 ---
 
 ## Requirements
 
-- **Windows 10 or 11.** Windows 11 22H2 or newer gets the real blur. Older versions get a dark glass look without blur.
+- **Windows 10 or 11.**
 - **Windows PowerShell 5.1.** It's already built into Windows, so you don't need to install anything.
 
 ---
@@ -95,17 +95,15 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\LiquidHUD.ps1
 
 | Setting | What it does |
 |---|---|
-| **Widget background** | 0 % keeps the text and a faint outline of the box. Slide right and the box fades in until it's solid at 100 % |
-| **Game overlay background** | 0 % is text only, 100 % is a solid bar |
+| **Show** | Tick **Big widget** and/or **Game overlay**. If both are off, press `Ctrl+Alt+S` to come back |
+| **Look** | **Outline**: text and a frame only, you see straight through to what's behind. **Solid**: text on a fully coloured background with a frame |
 | **Overlay position** | Top left, Top center, Top right, Bottom left, Bottom right, or Custom (where you last dropped it) |
 | **Free move** | Tick it, then drag the overlay anywhere (it gets a dashed outline). Untick it and the overlay locks in place and goes back to click-through, so it never blocks what's behind it |
 | **Disks** | Every ready fixed or removable drive is listed with its label and size. Tick the ones you want on the widget. New drives show up the next time you open Settings |
-| **Style** | **Clear** (default) gives real transparency. **Acrylic blur** and **Mica** give the Windows 11 frosted glass. Blur always keeps some grey tint, so use Clear if you want it fully see-through |
 | **What to monitor** | Tick a metric to show and collect it. Untick it to hide it and stop collecting it |
 | **Refresh rate** | 1 s, 2 s or 5 s. Slower uses less CPU |
 | **LiquidHUD itself is using** | Live RAM and CPU used by the widget itself |
 
-![Clear style with the background at 0%, 45% and 100%](docs/images/opacity.png)
 
 Settings are saved to `%APPDATA%\LiquidHUD\settings.json`.
 
@@ -113,12 +111,13 @@ Settings are saved to `%APPDATA%\LiquidHUD\settings.json`.
 
 ## Game overlay
 
-![Overlay bar on top of a game](docs/images/overlay.png)
+![Outline overlay free-moved under the browser's address bar](docs/images/browser.png)
 
 1. Press **`Ctrl+Alt+O`** to turn the overlay on.
 2. Press **`Ctrl+Alt+P`** to cycle its pinned position: top left, top center, top right, bottom left, bottom right, custom.
    - **Or put it anywhere:** press **`Ctrl+Alt+M`** (or tick **Free move** in Settings), drag the bar where you want it, then press `Ctrl+Alt+M` again to lock it. Its spot is saved as a fraction of the screen, so it lands in the same place on every monitor.
-3. Press **`Ctrl+Alt+H`** to hide the big widget so only the overlay stays.
+3. Press **`Ctrl+Alt+H`** to turn the big widget off so only the overlay stays (or untick **Big widget** in Settings).
+4. If the bar sits over something you need to see, like browser tabs, use the **Outline** look and/or **Free move** it out of the way.
 
 When it's locked, the overlay is **click-through**: your mouse goes straight to the game, and it never steals focus or shows up in Alt+Tab.
 
@@ -136,7 +135,7 @@ When it's locked, the overlay is **click-through**: your mouse goes straight to 
 | `Ctrl+Alt+O` | Toggle game overlay |
 | `Ctrl+Alt+P` | Cycle overlay position |
 | `Ctrl+Alt+M` | Free move overlay on/off (drag it, then press again to lock) |
-| `Ctrl+Alt+H` | Hide / show widget |
+| `Ctrl+Alt+H` | Big widget on/off |
 | Double-click widget | Open Task Manager |
 | Right-click widget | Menu |
 
@@ -150,7 +149,7 @@ When it's locked, the overlay is **click-through**: your mouse goes straight to 
 |  BelowNormal priority        |  ---------------------->  |  DispatcherTimer        |
 |                              |                           |                         |
 |  PerformanceCounter (CPU,GPU)|                           |  Widget window          |
-|  ComputerInfo (RAM)          |                           |   (Clear / Acrylic)     |
+|  ComputerInfo (RAM)          |                           |   (Outline / Solid)     |
 |  DriveInfo (all disks)       |                           |  Overlay window(s)      |
 |  NetworkInterface (net)      |                           |   (layered, click-thru) |
 |  PowerStatus (battery)       |                           |  Settings window        |
@@ -158,8 +157,7 @@ When it's locked, the overlay is **click-through**: your mouse goes straight to 
 +------------------------------+                           +-------------------------+
 ```
 
-- **Clear style:** a per-pixel-alpha (layered) WPF window, so the background can fade all the way to 0 %. It stays at 1 % alpha so you can still drag it.
-- **Acrylic / Mica style:** `DwmSetWindowAttribute` with `DWMWA_SYSTEMBACKDROP_TYPE` (Acrylic = 3, Mica = 2), rounded corners and dark mode. Switching style rebuilds the window on the fly.
+- **Windows:** per-pixel-alpha (layered) WPF windows. In the Outline look the widget keeps a 1 % fill so you can still grab it and drag it, and the text gets a soft shadow so it stays readable on any wallpaper.
 - **Overlay:** a layered window with the extended styles `WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`. LiquidHUD calls `SetWindowPos(HWND_TOPMOST)` every tick so the overlay stays on top.
 - **Hotkeys:** `RegisterHotKey` on a hidden message window.
 - **Low cost:**
@@ -186,10 +184,9 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 | Problem | Fix |
 |---|---|
 | **Nothing happens** when I double-click the `.bat` | Run Step 3 (Unblock). Then try the manual command from Step 4 in a PowerShell window so you can see any error |
-| **I want to quit, but the widget is hidden** | Press `Ctrl+Alt+H` to show it, then right-click and choose **Exit**. Or open Task Manager and end **Windows PowerShell** |
-| **I want blur, not clear** | Open Settings and set **Style** to **Acrylic blur** or **Mica**. This needs Windows 11 22H2 or newer, with **Settings → Personalization → Colors → Transparency effects** turned **On** |
-| **The widget looks grey when I lower the slider** | That's the Windows blur tint in Acrylic or Mica style. Switch **Style** to **Clear** |
+| **I want to quit, but nothing is on screen** | Press `Ctrl+Alt+S` for Settings, or `Ctrl+Alt+H` to show the widget, then right-click and choose **Exit**. Or open Task Manager and end **Windows PowerShell** |
 | **GPU shows `n/a`** | Your GPU driver doesn't expose the `GPU Engine` counters. Update your graphics driver |
+| **The overlay hides tabs or buttons behind it** | Switch **Look** to **Outline**, or turn on **Free move** (`Ctrl+Alt+M`) and drag it somewhere empty |
 | **Overlay not visible in a game** | Switch the game to Borderless or Windowed Fullscreen |
 | **The overlay is in the wrong spot on a second monitor** | Mixed DPI scaling across monitors can offset it. Untick **Overlay on all monitors** to keep it on the main screen |
 | **I want to reset everything** | Delete `%APPDATA%\LiquidHUD\settings.json` |
@@ -214,3 +211,14 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 ## License
 
 [MIT](LICENSE). Do whatever you like with it.
+
+---
+
+## Changelog
+
+| Version | What changed | Issues |
+|---|---|---|
+| **v7** | Clear rendering only: Acrylic, Mica and the background sliders are removed. Added the **Outline / Solid** look and **Show** toggles for the widget and the overlay | #5, #6, #7 |
+| v6 | Every disk detected with a tick box each. Overlay can be pinned or free-moved. Faint box kept at 0 % | #2, #3, #4 |
+| v5 | Clear style with real transparency | #1 |
+| v4 | Settings window, metric picker, refresh rate, resource savings | |
