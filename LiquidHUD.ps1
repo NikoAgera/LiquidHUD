@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v10.1 -  glass system monitor widget + game overlay for Windows
+#  LiquidHUD v11 -  glass system monitor widget + game overlay for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -24,10 +24,50 @@ $createdNew = $false
 $mutex = New-Object System.Threading.Mutex($true, 'Global\LiquidHUD_Mutex', [ref]$createdNew)
 if (-not $createdNew) { exit }
 
-Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @"
+Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @"
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
 public static class LhNative {
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr m, ref MONITORINFO mi);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder sb, int n);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+
+    // real on-screen rectangle (same coordinate space as Cursor.Position)
+    public static int[] Rect(IntPtr h) { RECT r; GetWindowRect(h, out r); return new int[] { r.Left, r.Top, r.Right, r.Bottom }; }
+
+    // is the foreground window a fullscreen / borderless-fullscreen app (game, video)?
+    public static bool FullscreenForeground(uint ownPid) {
+        IntPtr h = GetForegroundWindow(); if (h == IntPtr.Zero) return false;
+        uint pid; GetWindowThreadProcessId(h, out pid); if (pid == ownPid) return false;
+        StringBuilder sb = new StringBuilder(256); GetClassName(h, sb, 256); string c = sb.ToString();
+        if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return false;
+        RECT r; if (!GetWindowRect(h, out r)) return false;
+        MONITORINFO mi = new MONITORINFO(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+        if (!GetMonitorInfo(MonitorFromWindow(h, 2), ref mi)) return false;
+        return r.Left <= mi.rcMonitor.Left && r.Top <= mi.rcMonitor.Top && r.Right >= mi.rcMonitor.Right && r.Bottom >= mi.rcMonitor.Bottom;
+    }
+
+    // average brightness (0..1) of a small screen strip, -1 on failure
+    public static double Luma(int x, int y, int w, int h) {
+        if (w < 4 || h < 2) return -1;
+        try {
+            using (var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            using (var g = System.Drawing.Graphics.FromImage(bmp)) {
+                g.CopyFromScreen(x, y, 0, 0, new System.Drawing.Size(w, h));
+                var d = bmp.LockBits(new System.Drawing.Rectangle(0, 0, w, h), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                byte[] buf = new byte[d.Stride * h]; Marshal.Copy(d.Scan0, buf, 0, buf.Length); int stride = d.Stride; bmp.UnlockBits(d);
+                long sum = 0; int n = 0;
+                for (int yy = 0; yy < h; yy += 2) for (int xx = 0; xx < w; xx += 3) { int i = yy * stride + xx * 4; sum += buf[i + 2] * 299 + buf[i + 1] * 587 + buf[i] * 114; n++; }
+                return n == 0 ? -1 : sum / (n * 255000.0);
+            }
+        } catch { return -1; }
+    }
     [DllImport("kernel32.dll")] static extern IntPtr GetConsoleWindow();
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
     [DllImport("psapi.dll")] static extern bool EmptyWorkingSet(IntPtr p);
@@ -99,7 +139,7 @@ $cfgFile = Join-Path $cfgDir 'settings.json'
 if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir | Out-Null }
 $showDefault = [ordered]@{}; foreach ($k in $metrics.Keys) { $showDefault[$k] = $true }
 $cfg = [pscustomobject]@{
-    Left = -1; Top = 40; Topmost = $false; Look = 'Outline'; Overlay = $false; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayAutoHide = $true; OverlayX = 0.98; OverlayY = 0.01
+    Left = -1; Top = 40; Topmost = $false; Look = 'Outline'; Overlay = $false; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayAutoHide = $true; GameMode = $true; AdaptiveInk = $true; OverlayX = 0.98; OverlayY = 0.01
     WidgetHidden = $false; Interval = 2; Clock24 = $true
     Show = [pscustomobject]$showDefault
     OsdShow = [pscustomobject][ordered]@{ Cpu = $true; Gpu = $true; Ram = $true; Net = $true; TopC = $true; TopR = $false; Batt = $false; Graph = $true; Clock = $true }
@@ -393,6 +433,10 @@ $textShadow.Freeze()
 $textHalo = New-Object Windows.Media.Effects.DropShadowEffect
 $textHalo.BlurRadius = 9; $textHalo.ShadowDepth = 0; $textHalo.Opacity = 0.55; $textHalo.Color = [Windows.Media.Colors]::Black
 $textHalo.Freeze()
+$textShadowW = New-Object Windows.Media.Effects.DropShadowEffect
+$textShadowW.BlurRadius = 4; $textShadowW.ShadowDepth = 0; $textShadowW.Opacity = 1; $textShadowW.Color = [Windows.Media.Colors]::White; $textShadowW.Freeze()
+$textHaloW = New-Object Windows.Media.Effects.DropShadowEffect
+$textHaloW.BlurRadius = 9; $textHaloW.ShadowDepth = 0; $textHaloW.Opacity = 0.6; $textHaloW.Color = [Windows.Media.Colors]::White; $textHaloW.Freeze()
 
 function Build-Widget {
     if ($script:win) {
@@ -476,15 +520,18 @@ $osdLabels = [ordered]@{ Cpu = 'CPU'; Gpu = 'GPU'; Ram = 'RAM'; Graph = 'Mini gr
 $posNames = @('Top left', 'Top center', 'Top right', 'Bottom left', 'Bottom right', 'Custom', 'Bottom center')
 $posOrder = @(0, 1, 2, 3, 6, 4, 5)   # order shown in Settings / cycled by Ctrl+Alt+P
 $script:osds = @()
+$outlineEdgeDark = Brush '#8C000000'; $haloLight = Brush '#80FFFFFF'; $haloDark = Brush '#66000000'
+$pillLight = Brush '#E6FFFFFF'; $pillDark = Brush '#E612141A'
+$inkDark = Brush '#12141A'; $hotDark = Brush '#A32D2D'
 $freeEdge = Brush '#9FE1CB'; $osdEdge = Brush '#40FFFFFF'; $outlineEdge = Brush '#73FFFFFF'   # Outline frame: white at 45% opacity, 1 px
 $solidFill = Brush '#F20C0E16'; $clearFill = Brush '#00000000'; $hitFill = Brush '#03000000'; $grabFill = Brush '#40000000'
-$g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $dpi = $g.DpiX / 96.0; $g.Dispose()
+$g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $script:dpi = $g.DpiX / 96.0; $g.Dispose()   # refined from the first shown window
 
 function Place-Osd($o) {
     if ($cfg.OverlayFree) { return }     # user is dragging it around
     $w = $o.Win; $a = $o.Screen.WorkingArea
-    $L = $a.Left / $dpi; $T = $a.Top / $dpi; $R = $a.Right / $dpi; $B = $a.Bottom / $dpi
-    $ww = $w.ActualWidth; $hh = $w.ActualHeight; $m = if ($o.Collapsed) { 3 } else { 10 }
+    $L = $a.Left / $script:dpi; $T = $a.Top / $script:dpi; $R = $a.Right / $script:dpi; $B = $a.Bottom / $script:dpi
+    $ww = $w.ActualWidth; $hh = $w.ActualHeight; $m = if ($o.Collapsed) { 3 } else { 4 }
     switch ([int]$cfg.OverlayPos) {
         0 { $x = $L + $m; $y = $T + $m }
         1 { $x = ($L + $R - $ww) / 2; $y = $T + $m }
@@ -516,13 +563,13 @@ function Apply-OsdMetrics($o) {
 function Build-Osds {
     foreach ($o in $script:osds) { try { $o.Win.Close() } catch {} }
     $script:osds = @()
-    if (-not $cfg.Overlay) { $hoverTimer.Stop(); return }
+    if (-not $cfg.Overlay) { $hoverTimer.Stop(); $watchTimer.Stop(); return }
     $screens = if ($cfg.OverlayAll) { [System.Windows.Forms.Screen]::AllScreens } else { @([System.Windows.Forms.Screen]::PrimaryScreen) }
     foreach ($sc in $screens) {
         $w = [Windows.Markup.XamlReader]::Parse($osdXaml)
         $h = Win-Handle $w
         [LhNative]::MakeOverlay($h)
-        $w.Left = $sc.WorkingArea.Left / $dpi; $w.Top = $sc.WorkingArea.Top / $dpi
+        $w.Left = $sc.WorkingArea.Left / $script:dpi; $w.Top = $sc.WorkingArea.Top / $script:dpi
         $seg = @{}; $div = @{}; foreach ($k in $osdKeys) { $seg[$k] = $w.FindName("s$k"); $div[$k] = $w.FindName("d$k") }
         $w.Add_SizeChanged({ param($sn, $e); foreach ($oo in $script:osds) { if ($oo.Win -eq $sn) { Place-Osd $oo } } })
         $w.Add_MouseLeftButtonDown({
@@ -535,21 +582,23 @@ function Build-Osds {
                 Cpu = $w.FindName('oCpu'); Gpu = $w.FindName('oGpu'); Ram = $w.FindName('oRam'); Down = $w.FindName('oDown'); Up = $w.FindName('oUp')
                 TopCName = $w.FindName('oTopCName'); TopCVal = $w.FindName('oTopCVal'); TopRName = $w.FindName('oTopRName'); TopRVal = $w.FindName('oTopRVal')
                 Batt = $w.FindName('oBatt'); Clock = $w.FindName('oClock'); LineCpu = $w.FindName('oLineCpu'); LineRam = $w.FindName('oLineRam')
-                Full = $w.FindName('oFull'); Handle = $w.FindName('oHandle'); Collapsed = $false; LeaveAt = $null }
+                Full = $w.FindName('oFull'); Handle = $w.FindName('oHandle'); Collapsed = $false; LeaveAt = $null; Dark = $false; Shrink = @{}; Ink = (Collect-Ink $w) }
         Apply-OsdMetrics $o
         $w.Show(); $w.UpdateLayout()
+        try { $script:dpi = [Windows.PresentationSource]::FromVisual($w).CompositionTarget.TransformToDevice.M11 } catch {}
         Place-Osd $o
         $script:osds += $o
     }
     Apply-Free
     Apply-AutoHide
+    $watchTimer.Start()
 }
 # remember where the user dropped the overlay (fraction of that monitor)
 function Save-OsdSpot($w) {
-    $cx = [int](($w.Left + $w.ActualWidth / 2) * $dpi); $cy = [int](($w.Top + $w.ActualHeight / 2) * $dpi)
+    $cx = [int](($w.Left + $w.ActualWidth / 2) * $script:dpi); $cy = [int](($w.Top + $w.ActualHeight / 2) * $script:dpi)
     $sc = [System.Windows.Forms.Screen]::FromPoint((New-Object System.Drawing.Point($cx, $cy)))
     $a = $sc.WorkingArea
-    $L = $a.Left / $dpi; $T = $a.Top / $dpi; $scW = $a.Width / $dpi; $scH = $a.Height / $dpi
+    $L = $a.Left / $script:dpi; $T = $a.Top / $script:dpi; $scW = $a.Width / $script:dpi; $scH = $a.Height / $script:dpi
     $cfg.OverlayX = [Math]::Max(0, [Math]::Min(1, ($w.Left - $L) / [Math]::Max(1, $scW - $w.ActualWidth)))
     $cfg.OverlayY = [Math]::Max(0, [Math]::Min(1, ($w.Top - $T) / [Math]::Max(1, $scH - $w.ActualHeight)))
     $cfg.OverlayPos = 5
@@ -588,7 +637,8 @@ function Set-Free($on) {
 #  The overlay stays click-through; we just poll the cursor (every 70 ms,
 #  only while auto-hide is active) and compare it to the overlay's rectangle.
 # =====================================================================
-function AutoHide-Active { $cfg.Overlay -and $cfg.OverlayAutoHide -and -not $cfg.OverlayFree -and [int]$cfg.OverlayPos -ne 5 }
+$script:inFullscreen = $false
+function AutoHide-Active { $cfg.Overlay -and $cfg.OverlayAutoHide -and -not $cfg.OverlayFree -and [int]$cfg.OverlayPos -ne 5 -and -not ($cfg.GameMode -and $script:inFullscreen) }
 $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 1.0, [TimeSpan]::FromMilliseconds(160))
 $ease0 = New-Object Windows.Media.Animation.CubicEase; $ease0.EasingMode = 'EaseOut'; $fadeIn.EasingFunction = $ease0; $fadeIn.Freeze()
 function Set-OsdCollapsed($o, [bool]$c) {
@@ -608,22 +658,52 @@ function Apply-AutoHide {
     foreach ($o in $script:osds) { Set-OsdCollapsed $o $on }
     if ($on) { $hoverTimer.Start() } else { $hoverTimer.Stop() }
 }
+$watchTimer = New-Object Windows.Threading.DispatcherTimer
+$watchTimer.Interval = [TimeSpan]::FromSeconds(1)
+$watchTimer.Add_Tick({
+    try {
+        if (-not $cfg.Overlay -or -not $script:osds.Count) { return }
+        # 1) game mode: fullscreen app in front -> keep overlay open
+        $fs = [bool]($cfg.GameMode -and [LhNative]::FullscreenForeground([uint32]$PID))
+        if ($fs -ne $script:inFullscreen) { $script:inFullscreen = $fs; Apply-AutoHide }
+        # 2) adaptive ink: sample an 8 px strip right next to the bar (never the bar itself)
+        if ($cfg.Look -eq 'Outline' -and $cfg.AdaptiveInk) {
+            foreach ($o in $script:osds) {
+                $rc = [LhNative]::Rect($o.H); $wd = $rc[2] - $rc[0]; $gap = [int](3 * $script:dpi); $hgt = [int](8 * $script:dpi)
+                $y = if (@(3, 4, 6) -contains [int]$cfg.OverlayPos) { $rc[1] - $gap - $hgt } else { $rc[3] + $gap }
+                $lum = [LhNative]::Luma($rc[0], $y, $wd, $hgt)
+                if ($lum -lt 0) { continue }
+                $want = if ($o.Dark) { $lum -gt 0.45 } else { $lum -gt 0.62 }   # hysteresis: no flicker around the threshold
+                if ($want -ne $o.Dark) { $o.Dark = $want; Apply-OsdLook $o; Apply-HandleInk $o }
+            }
+        } else {
+            foreach ($o in $script:osds) { if ($o.Dark) { $o.Dark = $false; Apply-OsdLook $o; Apply-HandleInk $o } }
+        }
+    } catch {}
+})
+function Apply-HandleInk($o) {
+    if ($o.Dark) { $o.Handle.Background = $pillDark; $o.Handle.BorderBrush = $haloLight } else { $o.Handle.Background = $pillLight; $o.Handle.BorderBrush = $haloDark }
+}
 $hoverTimer = New-Object Windows.Threading.DispatcherTimer
 $hoverTimer.Interval = [TimeSpan]::FromMilliseconds(70)
 $hoverTimer.Add_Tick({
     try {
         $p = [System.Windows.Forms.Cursor]::Position
         foreach ($o in $script:osds) {
-            $w = $o.Win
-            $L = $w.Left * $dpi; $T = $w.Top * $dpi; $R = $L + $w.ActualWidth * $dpi; $B = $T + $w.ActualHeight * $dpi
-            # generous hot zone around the thin pill, a small grace margin around the full bar
-            if ($o.Collapsed) { $dx = 24 * $dpi; $dy = 12 * $dpi } else { $dx = 10 * $dpi; $dy = 10 * $dpi }
-            $inside = ($p.X -ge $L - $dx) -and ($p.X -le $R + $dx) -and ($p.Y -ge $T - $dy) -and ($p.Y -le $B + $dy)
+            $rc = [LhNative]::Rect($o.H); $L = $rc[0]; $T = $rc[1]; $R = $rc[2]; $B = $rc[3]
+            $sb = [System.Windows.Forms.Screen]::FromHandle($o.H).Bounds
+            # generous hot zone around the thin pill, a grace margin around the full bar
+            if ($o.Collapsed) { $dx = 28 * $script:dpi; $dy = 14 * $script:dpi } else { $dx = 14 * $script:dpi; $dy = 14 * $script:dpi }
+            $zT = $T - $dy; $zB = $B + $dy
+            # the gap between the bar and the screen edge always counts as "inside" -> no blinking
+            if (@(0, 1, 2) -contains [int]$cfg.OverlayPos) { $zT = $sb.Top - 2 }
+            if (@(3, 4, 6) -contains [int]$cfg.OverlayPos) { $zB = $sb.Bottom + 2 }
+            $inside = ($p.X -ge $L - $dx) -and ($p.X -le $R + $dx) -and ($p.Y -ge $zT) -and ($p.Y -le $zB)
             if ($inside) {
                 $o.LeaveAt = $null
                 if ($o.Collapsed) { Set-OsdCollapsed $o $false }
             } elseif (-not $o.Collapsed) {
-                if (-not $o.LeaveAt) { $o.LeaveAt = [DateTime]::Now.AddMilliseconds(450) }
+                if (-not $o.LeaveAt) { $o.LeaveAt = [DateTime]::Now.AddMilliseconds(500) }
                 elseif ([DateTime]::Now -ge $o.LeaveAt) { Set-OsdCollapsed $o $true }
             }
         }
@@ -635,6 +715,36 @@ $hoverTimer.Add_Tick({
 # =====================================================================
 # Look: Outline = text + frame only (see straight through to what's behind)
 #       Solid   = text + fully coloured background + frame
+# ---------- adaptive ink: remember every colour in the overlay, swap white<->black ----------
+function Collect-Ink($root) {
+    $list = New-Object System.Collections.ArrayList
+    $stack = New-Object System.Collections.Stack; $stack.Push($root)
+    while ($stack.Count) {
+        $e = $stack.Pop()
+        if ($e -is [Windows.Controls.TextBlock] -and $e.Foreground -is [Windows.Media.SolidColorBrush]) { [void]$list.Add(@($e, 'Foreground', $e.Foreground.Color)) }
+        elseif ($e -is [Windows.Shapes.Polyline] -and $e.Stroke -is [Windows.Media.SolidColorBrush]) { [void]$list.Add(@($e, 'Stroke', $e.Stroke.Color)) }
+        elseif ($e -is [Windows.Controls.Border] -and $e.Name -notin @('oBg', 'oHalo', 'oPad', 'oHandle') -and $e.Background -is [Windows.Media.SolidColorBrush]) { [void]$list.Add(@($e, 'Background', $e.Background.Color)) }
+        foreach ($c in [Windows.LogicalTreeHelper]::GetChildren($e)) { if ($c -is [Windows.DependencyObject]) { $stack.Push($c) } }
+    }
+    ,$list
+}
+$inkMap = @{ 'FF9FE1CB' = 'FF0F6E56'; 'FF85B7EB' = 'FF185FA5'; 'FFAFA9EC' = 'FF534AB7'; 'FFF09595' = 'FFA32D2D' }
+function Ink-Color($c, [bool]$dark) {
+    if (-not $dark) { return $c }
+    $k = '{0:X2}{1:X2}{2:X2}{3:X2}' -f 255, $c.R, $c.G, $c.B
+    if ($inkMap.ContainsKey($k)) { $n = [Windows.Media.ColorConverter]::ConvertFromString('#' + $inkMap[$k]); return [Windows.Media.Color]::FromArgb($c.A, $n.R, $n.G, $n.B) }
+    if ($c.R -gt 180 -and $c.G -gt 180 -and $c.B -gt 180) { return [Windows.Media.Color]::FromArgb($c.A, 0x12, 0x14, 0x1A) }
+    $c
+}
+function Apply-OsdInk($o) {
+    $dark = [bool]($o.Dark -and $cfg.Look -ne 'Solid')
+    foreach ($it in $o.Ink) {
+        $b = New-Object Windows.Media.SolidColorBrush (Ink-Color $it[2] $dark); $b.Freeze()
+        $it[0].($it[1]) = $b
+    }
+    $o.Main = if ($dark) { $inkDark } else { $white }
+    $o.Hot = if ($dark) { $hotDark } else { $hot }
+}
 function Apply-OsdLook($o) {
     $o.Win.Opacity = 1; $o.Bg.Opacity = 1
     if ($cfg.Look -eq 'Solid') {
@@ -642,10 +752,19 @@ function Apply-OsdLook($o) {
         $o.Halo.Visibility = 'Collapsed'
         $o.Body.Effect = $null; $o.Pad.Effect = $null
     } else {
-        $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdge; $o.Bg.BorderThickness = 1
-        $o.Halo.Visibility = if ($o.Collapsed) { 'Collapsed' } else { 'Visible' }   # dark ring outside the white frame: visible on light AND dark wallpapers
-        $o.Body.Effect = $textShadow; $o.Pad.Effect = $textHalo
+        $o.Halo.Visibility = if ($o.Collapsed) { 'Collapsed' } else { 'Visible' }   # contrasting ring outside the frame
+        if ($o.Dark) {
+            # bright background behind the overlay -> black text, dark frame, white glow
+            $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdgeDark; $o.Bg.BorderThickness = 1
+            $o.Halo.BorderBrush = $haloLight
+            $o.Body.Effect = $textShadowW; $o.Pad.Effect = $textHaloW
+        } else {
+            $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdge; $o.Bg.BorderThickness = 1
+            $o.Halo.BorderBrush = $haloDark
+            $o.Body.Effect = $textShadow; $o.Pad.Effect = $textHalo
+        }
     }
+    Apply-OsdInk $o
 }
 function Apply-Look {
     if ($script:ui) {
@@ -756,6 +875,8 @@ $settingsXaml = @"
       <WrapPanel x:Name="sPos"/>
       <CheckBox x:Name="sFree" Width="300" Margin="0,6,0,0" Content="Free move  (drag the overlay, untick to lock it)"/>
       <CheckBox x:Name="sAuto" Width="300" Margin="0,0,0,0" Content="Auto-hide  (thin bar, hover to show)"/>
+      <CheckBox x:Name="sGame" Width="300" Margin="0,8,0,0" Content="Game mode  (stay open over fullscreen apps)"/>
+      <CheckBox x:Name="sInk" Width="300" Margin="0,8,0,0" Content="Adaptive text  (black on bright, white on dark)"/>
 
       <TextBlock Style="{StaticResource Head}" Text="Clock"/>
       <StackPanel Orientation="Horizontal">
@@ -806,6 +927,8 @@ function Sync-Settings {
     $s.sLO.IsChecked = ($cfg.Look -ne 'Solid'); $s.sLS.IsChecked = ($cfg.Look -eq 'Solid')
     $s.sFree.IsChecked = [bool]$cfg.OverlayFree
     $s.sAuto.IsChecked = [bool]$cfg.OverlayAutoHide
+    $s.sGame.IsChecked = [bool]$cfg.GameMode
+    $s.sInk.IsChecked = [bool]$cfg.AdaptiveInk
     $s.sC24.IsChecked = [bool]$cfg.Clock24; $s.sC12.IsChecked = -not [bool]$cfg.Clock24
     Sync-PosRadios
 }
@@ -856,7 +979,7 @@ function Open-Settings {
     $sw = [Windows.Markup.XamlReader]::Parse($settingsXaml)
     $script:sWin = $sw
     $script:sUi = @{}
-    foreach ($n in 'sRoot','sClose','sChecks','sR1','sR2','sR5','sSelf','sPos','sFree','sAuto','sDisks','sShowW','sShowO','sNone','sLO','sLS','sC24','sC12','sOsdChecks') { $script:sUi[$n] = $sw.FindName($n) }
+    foreach ($n in 'sRoot','sClose','sChecks','sR1','sR2','sR5','sSelf','sPos','sFree','sAuto','sGame','sInk','sDisks','sShowW','sShowO','sNone','sLO','sLS','sC24','sC12','sOsdChecks') { $script:sUi[$n] = $sw.FindName($n) }
     $s = $script:sUi
 
     $s.sShowW.Add_Click({ if ([bool]$this.IsChecked -eq [bool]$cfg.WidgetHidden) { Toggle-Widget } })
@@ -883,6 +1006,8 @@ function Open-Settings {
     $s.sFree.IsChecked = [bool]$cfg.OverlayFree
     $s.sFree.Add_Click({ Set-Free ([bool]$this.IsChecked) })
     $s.sAuto.Add_Click({ Set-AutoHide ([bool]$this.IsChecked) })
+    $s.sGame.Add_Click({ $cfg.GameMode = [bool]$this.IsChecked; Save-Cfg; $script:inFullscreen = $false; Apply-AutoHide })
+    $s.sInk.Add_Click({ $cfg.AdaptiveInk = [bool]$this.IsChecked; Save-Cfg })
 
     foreach ($k in $osdLabels.Keys) {
         $cb = New-Object Windows.Controls.CheckBox
@@ -985,7 +1110,7 @@ function Toggle-Widget {
     $sync.Want = Want-Table
 }
 function Quit-All {
-    $timer.Stop(); $hoverTimer.Stop(); $sync.Stop = $true
+    $timer.Stop(); $hoverTimer.Stop(); $watchTimer.Stop(); $sync.Stop = $true
     $cfg.OverlayFree = $false
     $cfg.Left = $win.Left; $cfg.Top = $win.Top; Save-Cfg
     foreach ($o in $script:osds) { try { $o.Win.Close() } catch {} }
@@ -1095,20 +1220,30 @@ $timer.Add_Tick({
     $downTxt = if ($null -ne $d.Down) { (Fmt-Bytes $d.Down) + '/s' } else { '' }
     $upTxt = if ($null -ne $d.Up) { (Fmt-Bytes $d.Up) + '/s' } else { '' }
     foreach ($o in $script:osds) {
-        Set-Text $o.Cpu $cpuTxt; $o.Cpu.Foreground = if ($d.Cpu -gt 85) { $hot } else { $white }
+        Set-Text $o.Cpu $cpuTxt; $o.Cpu.Foreground = if ($d.Cpu -gt 85) { $o.Hot } else { $o.Main }
         Set-Text $o.Gpu $gpuTxt
-        Set-Text $o.Ram $ramTxt; $o.Ram.Foreground = if ($ramPct -gt 85) { $hot } else { $white }
+        Set-Text $o.Ram $ramTxt; $o.Ram.Foreground = if ($ramPct -gt 85) { $o.Hot } else { $o.Main }
         Set-Text $o.Down $downTxt; Set-Text $o.Up $upTxt
         if ($d.TopCName) { Set-Text $o.TopCName $d.TopCName; Set-Text $o.TopCVal ('{0:N0}%' -f $d.TopCPct) }
         if ($d.TopR) { Set-Text $o.TopRName $d.TopR; Set-Text $o.TopRVal (Fmt-Bytes $d.TopRBytes) }
         Set-Text $o.Batt $(if ($null -eq $d.NoBatt -or $d.NoBatt) { '' } else { ('{0:N0}%' -f $d.Batt) + $(if ($d.Charging) { ' ' + [char]0x26A1 } else { '' }) })
         Set-Text $o.Clock $clock
         if ($osdGraph) { Draw-Line $o.LineCpu $histOC 56 18 30; Draw-Line $o.LineRam $histOR 56 18 30 }
-        # grow-only widths: each item hugs its text, but never shrinks back while running,
-        # so the bar stays tight AND a centered bar never jumps left/right
+        # widths: grow at once, shrink only after a value has been shorter for 6 updates in a row.
+        # Tight bar, and a centered bar never jitters.
         if (-not $o.Collapsed) {
+            $inf = New-Object Windows.Size([double]::PositiveInfinity, [double]::PositiveInfinity)
+            foreach ($k in $osdKeys) {
+                $sg = $o.Seg[$k]; if ($sg.Visibility -ne 'Visible') { continue }
+                $old = $sg.MinWidth; $sg.MinWidth = 0; $sg.Measure($inf); $nat = [Math]::Ceiling($sg.DesiredSize.Width)
+                if ($nat -ge $old) { $sg.MinWidth = $nat; $o.Shrink[$k] = 0 }
+                elseif ($old - $nat -le 2) { $sg.MinWidth = $old }
+                else {
+                    $o.Shrink[$k] = [int]$o.Shrink[$k] + 1
+                    $sg.MinWidth = if ($o.Shrink[$k] -ge 6) { $o.Shrink[$k] = 0; $nat } else { $old }
+                }
+            }
             $o.Win.UpdateLayout()
-            foreach ($k in $osdKeys) { $sg = $o.Seg[$k]; if ($sg.Visibility -eq 'Visible' -and $sg.ActualWidth -gt $sg.MinWidth) { $sg.MinWidth = [Math]::Ceiling($sg.ActualWidth) } }
         }
         Place-Osd $o
         [LhNative]::Top($o.H)

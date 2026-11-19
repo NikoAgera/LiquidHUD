@@ -100,6 +100,8 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\LiquidHUD.ps1
 | **Clock** | **24h** (`18:46`) or **12h** (`6:46 PM`), for both the widget and the overlay |
 | **Overlay position** | Top left, Top center, Top right, Bottom left, **Bottom center**, Bottom right, or Custom (where you last dropped it). Centered positions stay put because the bar has a fixed width |
 | **Auto-hide** | On by default. When idle, the overlay shrinks to a thin iPhone-style bar at its edge. Hover it to expand the overlay, and move away to collapse it. Works in every pinned position, but not in Free move or Custom |
+| **Game mode** | On by default. When a fullscreen or borderless-fullscreen app is in front (a game or a video), auto-hide pauses and the full overlay stays open. Back on the desktop, it auto-hides again |
+| **Adaptive text** | On by default (Outline look). LiquidHUD checks how bright the area next to the bar is: **black text** on bright scenes, **white text** on dark ones |
 | **Free move** | Tick it, then drag the overlay anywhere (it gets a dashed outline). Untick it and the overlay locks in place and goes back to click-through, so it never blocks what's behind it |
 | **Disks** | Every ready fixed or removable drive is listed with its label and size. Tick the ones you want on the widget. New drives show up the next time you open Settings |
 | **Big widget shows** | Tick a metric to show it on the widget |
@@ -122,7 +124,13 @@ Settings are saved to `%APPDATA%\LiquidHUD\settings.json`.
 
 LiquidHUD checks the cursor position every 70 ms, and only while auto-hide is on. That means the overlay **stays click-through**: hovering it never blocks the window underneath.
 
-> In games that lock or hide the cursor (most FPS games), you can't hover the bar. Untick **Auto-hide** to keep the full overlay visible while you play.
+> In games that lock or hide the cursor (most FPS games), you can't hover the bar. **Game mode** handles this: when a fullscreen or borderless game is in front, the full overlay stays open on its own.
+
+### Adaptive text
+
+![Black text on a bright scene, white on a dark one](docs/images/adaptive.png)
+
+Once a second, LiquidHUD samples an 8 px strip right next to the bar (never the bar itself). Above 62 % brightness it switches to black text, and below 45 % it switches back to white. The gap between the two thresholds stops it from flickering.
 
 The bar is compact: thin dividers between items, a 56×18 mini graph (blue = CPU, purple = RAM), and every item sized to its text. Item widths can only **grow, never shrink**, while it's running, so the bar stays tight and a centered bar never jumps.
 
@@ -233,7 +241,8 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 
 | Version | What changed | Issues |
 |---|---|---|
-| **v10.1** | A tighter overlay: items sized to their text, with grow-only widths | #20 |
+| **v11** | Fixes the auto-hide blink (the bar sits closer to the edge, and the hot zone reaches the edge). Adds **Game mode** and **Adaptive text**. Item widths can shrink again, slowly | #22, #23, #24 |
+| v10.1 | A tighter overlay: items sized to their text, with grow-only widths | #20 |
 | v10 | Overlay **auto-hide**: a thin iPhone-style bar when idle, which expands when you hover it | #18 |
 | v9 | Compact overlay with dividers and a mini CPU + RAM graph. Outline now readable on white wallpapers (dark ring and text halo) | #14, #15, #16 |
 | v8 | 12h / 24h clock, **Bottom center** position, a fixed-width overlay that no longer jumps when centered, a separate metric list for the overlay, and a thinner Outline frame | #9, #10, #11, #12 |
