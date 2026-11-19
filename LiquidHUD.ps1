@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v10 -  glass system monitor widget + game overlay for Windows
+#  LiquidHUD v10.1 -  glass system monitor widget + game overlay for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -449,21 +449,21 @@ $osdXaml = @"
   <Grid x:Name="oFull">
   <Border x:Name="oHalo" CornerRadius="12" Margin="-1" BorderThickness="1" BorderBrush="#66000000"/>
   <Border x:Name="oBg" CornerRadius="11" Background="#F00C0E16" BorderBrush="#40FFFFFF" BorderThickness="1"/>
-  <Border x:Name="oPad" Padding="10,4,11,5">
+  <Border x:Name="oPad" Padding="9,4,10,5">
     <StackPanel x:Name="oContent" Orientation="Horizontal" TextBlock.FontSize="12.5" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center">
-      <StackPanel x:Name="sCpu" Orientation="Horizontal"><Border x:Name="dCpu" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock Text="CPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,4,0"/><TextBlock x:Name="oCpu" Text="--" Foreground="White" FontWeight="Bold" Width="32"/></StackPanel>
-      <StackPanel x:Name="sGpu" Orientation="Horizontal"><Border x:Name="dGpu" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock Text="GPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,4,0"/><TextBlock x:Name="oGpu" Text="--" Foreground="#9FE1CB" FontWeight="Bold" Width="32"/></StackPanel>
-      <StackPanel x:Name="sRam" Orientation="Horizontal"><Border x:Name="dRam" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock Text="RAM" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,4,0"/><TextBlock x:Name="oRam" Text="--" Foreground="White" FontWeight="Bold" Width="32"/></StackPanel>
-      <StackPanel x:Name="sGraph" Orientation="Horizontal"><Border x:Name="dGraph" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/>
+      <StackPanel x:Name="sCpu" Orientation="Horizontal"><Border x:Name="dCpu" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock Text="CPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,3,0"/><TextBlock x:Name="oCpu" Text="--" Foreground="White" FontWeight="Bold"/></StackPanel>
+      <StackPanel x:Name="sGpu" Orientation="Horizontal"><Border x:Name="dGpu" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock Text="GPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,3,0"/><TextBlock x:Name="oGpu" Text="--" Foreground="#9FE1CB" FontWeight="Bold"/></StackPanel>
+      <StackPanel x:Name="sRam" Orientation="Horizontal"><Border x:Name="dRam" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock Text="RAM" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,3,0"/><TextBlock x:Name="oRam" Text="--" Foreground="White" FontWeight="Bold"/></StackPanel>
+      <StackPanel x:Name="sGraph" Orientation="Horizontal"><Border x:Name="dGraph" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/>
         <Border Width="56" Height="18" CornerRadius="4" Background="#1AFFFFFF" ClipToBounds="True" VerticalAlignment="Center">
           <Canvas><Polyline x:Name="oLineRam" Stroke="#AFA9EC" StrokeThickness="1.3" StrokeLineJoin="Round"/><Polyline x:Name="oLineCpu" Stroke="#85B7EB" StrokeThickness="1.3" StrokeLineJoin="Round"/></Canvas>
         </Border>
       </StackPanel>
-      <StackPanel x:Name="sNet" Orientation="Horizontal"><Border x:Name="dNet" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock Text="&#x2193;" Foreground="#A6FFFFFF" Margin="0,0,3,0"/><TextBlock x:Name="oDown" Foreground="White" Width="60"/><TextBlock Text="&#x2191;" Foreground="#A6FFFFFF" Margin="2,0,3,0"/><TextBlock x:Name="oUp" Foreground="White" Width="60"/></StackPanel>
-      <StackPanel x:Name="sTopC" Orientation="Horizontal"><Border x:Name="dTopC" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="oTopCName" Foreground="#CCFFFFFF" MaxWidth="96" Width="96" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopCVal" Foreground="White" FontWeight="SemiBold" Width="30" Margin="4,0,0,0"/></StackPanel>
-      <StackPanel x:Name="sTopR" Orientation="Horizontal"><Border x:Name="dTopR" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="oTopRName" Foreground="#CCFFFFFF" Width="80" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopRVal" Foreground="White" FontWeight="SemiBold" Width="52" Margin="4,0,0,0"/></StackPanel>
-      <StackPanel x:Name="sBatt" Orientation="Horizontal"><Border x:Name="dBatt" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="oBatt" Foreground="White" FontWeight="SemiBold" Width="44"/></StackPanel>
-      <StackPanel x:Name="sClock" Orientation="Horizontal"><Border x:Name="dClock" Width="1" Height="12" Background="#40FFFFFF" Margin="8,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="oClock" Foreground="White" Width="40"/></StackPanel>
+      <StackPanel x:Name="sNet" Orientation="Horizontal"><Border x:Name="dNet" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock Text="&#x2193;" Foreground="#A6FFFFFF" Margin="0,0,3,0"/><TextBlock x:Name="oDown" Foreground="White"/><TextBlock Text="&#x2191;" Foreground="#A6FFFFFF" Margin="7,0,3,0"/><TextBlock x:Name="oUp" Foreground="White"/></StackPanel>
+      <StackPanel x:Name="sTopC" Orientation="Horizontal"><Border x:Name="dTopC" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock x:Name="oTopCName" Foreground="#CCFFFFFF" MaxWidth="110" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopCVal" Foreground="White" FontWeight="SemiBold" Margin="5,0,0,0"/></StackPanel>
+      <StackPanel x:Name="sTopR" Orientation="Horizontal"><Border x:Name="dTopR" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock x:Name="oTopRName" Foreground="#CCFFFFFF" MaxWidth="100" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopRVal" Foreground="White" FontWeight="SemiBold" Margin="5,0,0,0"/></StackPanel>
+      <StackPanel x:Name="sBatt" Orientation="Horizontal"><Border x:Name="dBatt" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock x:Name="oBatt" Foreground="White" FontWeight="SemiBold"/></StackPanel>
+      <StackPanel x:Name="sClock" Orientation="Horizontal"><Border x:Name="dClock" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock x:Name="oClock" Foreground="White"/></StackPanel>
     </StackPanel>
   </Border>
   </Grid>
@@ -510,7 +510,7 @@ function Apply-OsdMetrics($o) {
         $o.Div[$k].Visibility = if ($on -and -not $first) { 'Visible' } else { 'Collapsed' }   # no divider before the first item
         if ($on) { $first = $false }
     }
-    $o.Clock.Width = if ($cfg.Clock24) { 38 } else { 58 }   # fixed widths = bar never changes size
+    foreach ($k in $osdKeys) { $o.Seg[$k].MinWidth = 0 }   # reset the grow-only widths (metrics / clock format changed)
     Apply-OsdLook $o
 }
 function Build-Osds {
@@ -1104,6 +1104,12 @@ $timer.Add_Tick({
         Set-Text $o.Batt $(if ($null -eq $d.NoBatt -or $d.NoBatt) { '' } else { ('{0:N0}%' -f $d.Batt) + $(if ($d.Charging) { ' ' + [char]0x26A1 } else { '' }) })
         Set-Text $o.Clock $clock
         if ($osdGraph) { Draw-Line $o.LineCpu $histOC 56 18 30; Draw-Line $o.LineRam $histOR 56 18 30 }
+        # grow-only widths: each item hugs its text, but never shrinks back while running,
+        # so the bar stays tight AND a centered bar never jumps left/right
+        if (-not $o.Collapsed) {
+            $o.Win.UpdateLayout()
+            foreach ($k in $osdKeys) { $sg = $o.Seg[$k]; if ($sg.Visibility -eq 'Visible' -and $sg.ActualWidth -gt $sg.MinWidth) { $sg.MinWidth = [Math]::Ceiling($sg.ActualWidth) } }
+        }
         Place-Osd $o
         [LhNative]::Top($o.H)
     }
