@@ -124,7 +124,7 @@ LiquidHUD checks the cursor position every 70 ms, and only while auto-hide is on
 
 > In games that lock or hide the cursor (most FPS games), you can't hover the bar. Untick **Auto-hide** to keep the full overlay visible while you play.
 
-The bar is compact: thin dividers between items, a 56×18 mini graph (blue = CPU, purple = RAM), and fixed widths so it never jumps while it's running.
+The bar is compact: thin dividers between items, a 56×18 mini graph (blue = CPU, purple = RAM), and every item sized to its text. Item widths can only **grow, never shrink**, while it's running, so the bar stays tight and a centered bar never jumps.
 
 ![Outline and Solid on a white wallpaper](docs/images/light.png)
 
@@ -233,7 +233,8 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 
 | Version | What changed | Issues |
 |---|---|---|
-| **v10** | Overlay **auto-hide**: a thin iPhone-style bar when idle, which expands when you hover it | #18 |
+| **v10.1** | A tighter overlay: items sized to their text, with grow-only widths | #20 |
+| v10 | Overlay **auto-hide**: a thin iPhone-style bar when idle, which expands when you hover it | #18 |
 | v9 | Compact overlay with dividers and a mini CPU + RAM graph. Outline now readable on white wallpapers (dark ring and text halo) | #14, #15, #16 |
 | v8 | 12h / 24h clock, **Bottom center** position, a fixed-width overlay that no longer jumps when centered, a separate metric list for the overlay, and a thinner Outline frame | #9, #10, #11, #12 |
 | v7 | Clear rendering only: Acrylic, Mica and the background sliders are removed. Added the **Outline / Solid** look and **Show** toggles for the widget and the overlay | #5, #6, #7 |
