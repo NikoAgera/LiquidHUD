@@ -20,6 +20,7 @@ No installer, no Rainmeter, no HWiNFO, no admin rights. One `.ps1` file that liv
   - the top CPU app and the top RAM app
   - battery
   - a clock (12h or 24h)
+- **Coloured icons** for every stat (or plain text labels, if you prefer)
 - **Lives in the system tray.** Open *Show hidden icons* on the taskbar, **click** the LiquidHUD icon for Settings, and **right-click** it for the menu
 - **Auto-hide:** shrinks to an iPhone-style thin bar. When you hover it, the overlay **pours out of the bar like the macOS genie effect**, and when you move away it pours back in
 - **Game mode:** stays fully open over fullscreen and borderless games
@@ -79,6 +80,7 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\LiquidHUD.ps1
 |---|---|
 | **Show the overlay** | Turns the overlay on or off (`Ctrl+Alt+O`) |
 | **Start with Windows** | Adds or removes a shortcut in your Startup folder |
+| **Coloured icons** | On by default. Each stat has its own small coloured icon. Off shows the text labels (`CPU`, `GPU`, `RAM`) instead |
 | **Look** | **Outline** is text and a thin frame, so you see straight through it. **Solid** is a filled dark bar |
 | **Overlay position** | Top left, Top center, Top right, Bottom left, Bottom center, Bottom right, or Custom |
 | **Free move** | Drag the overlay anywhere. Untick it to lock it in place, and it goes back to click-through. It always stays on screen |
@@ -92,6 +94,22 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\LiquidHUD.ps1
 | **LiquidHUD itself is using** | Live RAM and CPU used by LiquidHUD |
 
 Settings are saved to `%APPDATA%\LiquidHUD\settings.json`.
+
+### Icons
+
+![Coloured icons in the Outline and Solid looks](docs/images/icons.png)
+
+| Icon | Stat | Colour |
+|---|---|---|
+| chip | CPU | blue |
+| gamepad | GPU | teal |
+| memory stick | RAM / top RAM app | purple |
+| ↓ / ↑ | download / upload | green / coral |
+| app window | top CPU app | amber |
+| battery | battery | green |
+| clock | clock | white |
+
+The icons are vector paths drawn in code, so they don't depend on any font and stay sharp at any display scaling. With **Adaptive text**, they switch to darker shades on bright backgrounds.
 
 ### Looks
 
@@ -201,7 +219,8 @@ Ideas for later are in [ROADMAP.md](ROADMAP.md).
 
 | Version | What changed | Issues |
 |---|---|---|
-| **v15** | **Genie animation** (macOS style). Much lighter GPU reading (one category read instead of ~100 counters), no re-layout when nothing changed, a single text shadow | #35 |
+| **v16** | **Coloured icons** in the overlay: CPU, GPU, RAM, network, top app, battery, clock. A Settings toggle switches back to text labels | #37 |
+| v15 | **Genie animation** (macOS style). Much lighter GPU reading (one category read instead of ~100 counters), no re-layout when nothing changed, a single text shadow | #35 |
 | v14 | **Smooth auto-hide animation**: slow open on hover and slow close on leave, which turns around if you come back. Also fixes the Settings position buttons and the Free move / Auto-hide / Game mode / Adaptive text toggles, which v13 had broken | #33 |
 | v13 | **Big widget removed.** LiquidHUD is now overlay-only and lives in the **system tray** (click for Settings, right-click for the menu). Disk, uptime and the 60 s graph are gone with the widget | #31 |
 | v12 | Lighter: software rendering, no bar animations, and slower GPU and process scans. Windows stay on screen | #26, #27 |

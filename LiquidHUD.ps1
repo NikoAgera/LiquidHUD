@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v15  -  game overlay system monitor for Windows
+#  LiquidHUD v16  -  game overlay system monitor for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -121,7 +121,7 @@ $cfgFile = Join-Path $cfgDir 'settings.json'
 if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir | Out-Null }
 $cfg = [pscustomobject]@{
     Look = 'Outline'; Overlay = $true; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayAutoHide = $true; GameMode = $true; AdaptiveInk = $true; OverlayX = 0.98; OverlayY = 0.01
-    Interval = 2; Clock24 = $true; TrayTipShown = $false; Animations = $true
+    Interval = 2; Clock24 = $true; TrayTipShown = $false; Animations = $true; Icons = $true
     OsdShow = [pscustomobject][ordered]@{ Cpu = $true; Gpu = $true; Ram = $true; Net = $true; TopC = $true; TopR = $false; Batt = $false; Graph = $true; Clock = $true }
 }
 if (Test-Path $cfgFile) {
@@ -318,19 +318,19 @@ $osdXaml = @"
   <Border x:Name="oBg" CornerRadius="11" Background="#F00C0E16" BorderBrush="#40FFFFFF" BorderThickness="1"/>
   <Border x:Name="oPad" Padding="9,4,10,5">
     <StackPanel x:Name="oContent" Orientation="Horizontal" TextBlock.FontSize="12.5" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center">
-      <StackPanel x:Name="sCpu" Orientation="Horizontal"><Border x:Name="dCpu" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock Text="CPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,3,0"/><TextBlock x:Name="oCpu" Text="--" Foreground="White" FontWeight="Bold"/></StackPanel>
-      <StackPanel x:Name="sGpu" Orientation="Horizontal"><Border x:Name="dGpu" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock Text="GPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,3,0"/><TextBlock x:Name="oGpu" Text="--" Foreground="#9FE1CB" FontWeight="Bold"/></StackPanel>
-      <StackPanel x:Name="sRam" Orientation="Horizontal"><Border x:Name="dRam" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock Text="RAM" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,3,0"/><TextBlock x:Name="oRam" Text="--" Foreground="White" FontWeight="Bold"/></StackPanel>
+      <StackPanel x:Name="sCpu" Orientation="Horizontal"><Border x:Name="dCpu" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><Path x:Name="iCpu" Width="14" Height="14" Stretch="Uniform" Stroke="#85B7EB" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,4,0" Data="M7 7h10v10H7z M10 10h4v4h-4z M10 3v4 M14 3v4 M10 17v4 M14 17v4 M3 10h4 M3 14h4 M17 10h4 M17 14h4"/><TextBlock x:Name="lCpu" Text="CPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,3,0"/><TextBlock x:Name="oCpu" Text="--" Foreground="White" FontWeight="Bold"/></StackPanel>
+      <StackPanel x:Name="sGpu" Orientation="Horizontal"><Border x:Name="dGpu" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><Path x:Name="iGpu" Width="14" Height="14" Stretch="Uniform" Stroke="#9FE1CB" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,4,0" Data="M6.5 8h11a4.5 4.5 0 0 1 4.3 5.8l-.7 2.3a2.5 2.5 0 0 1-4.3 .8L15 15h-6l-1.8 1.9a2.5 2.5 0 0 1-4.3 -.8l-.7 -2.3A4.5 4.5 0 0 1 6.5 8z M8 10.5v3 M6.5 12h3 M15.5 11.5h.01 M17.5 12.5h.01"/><TextBlock x:Name="lGpu" Text="GPU" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,3,0"/><TextBlock x:Name="oGpu" Text="--" Foreground="#9FE1CB" FontWeight="Bold"/></StackPanel>
+      <StackPanel x:Name="sRam" Orientation="Horizontal"><Border x:Name="dRam" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><Path x:Name="iRam" Width="14" Height="14" Stretch="Uniform" Stroke="#AFA9EC" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,4,0" Data="M3 7h18v9H3z M7 10h2v3H7z M11 10h2v3h-2z M15 10h2v3h-2z M6 16v3 M10 16v3 M14 16v3 M18 16v3"/><TextBlock x:Name="lRam" Text="RAM" Foreground="#A6FFFFFF" FontWeight="SemiBold" Margin="0,0,3,0"/><TextBlock x:Name="oRam" Text="--" Foreground="White" FontWeight="Bold"/></StackPanel>
       <StackPanel x:Name="sGraph" Orientation="Horizontal"><Border x:Name="dGraph" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/>
         <Border Width="56" Height="18" CornerRadius="4" Background="#1AFFFFFF" ClipToBounds="True" VerticalAlignment="Center">
           <Canvas><Polyline x:Name="oLineRam" Stroke="#AFA9EC" StrokeThickness="1.3" StrokeLineJoin="Round"/><Polyline x:Name="oLineCpu" Stroke="#85B7EB" StrokeThickness="1.3" StrokeLineJoin="Round"/></Canvas>
         </Border>
       </StackPanel>
-      <StackPanel x:Name="sNet" Orientation="Horizontal"><Border x:Name="dNet" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock Text="&#x2193;" Foreground="#A6FFFFFF" Margin="0,0,3,0"/><TextBlock x:Name="oDown" Foreground="White"/><TextBlock Text="&#x2191;" Foreground="#A6FFFFFF" Margin="7,0,3,0"/><TextBlock x:Name="oUp" Foreground="White"/></StackPanel>
-      <StackPanel x:Name="sTopC" Orientation="Horizontal"><Border x:Name="dTopC" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock x:Name="oTopCName" Foreground="#CCFFFFFF" MaxWidth="110" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopCVal" Foreground="White" FontWeight="SemiBold" Margin="5,0,0,0"/></StackPanel>
-      <StackPanel x:Name="sTopR" Orientation="Horizontal"><Border x:Name="dTopR" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock x:Name="oTopRName" Foreground="#CCFFFFFF" MaxWidth="100" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopRVal" Foreground="White" FontWeight="SemiBold" Margin="5,0,0,0"/></StackPanel>
-      <StackPanel x:Name="sBatt" Orientation="Horizontal"><Border x:Name="dBatt" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock x:Name="oBatt" Foreground="White" FontWeight="SemiBold"/></StackPanel>
-      <StackPanel x:Name="sClock" Orientation="Horizontal"><Border x:Name="dClock" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><TextBlock x:Name="oClock" Foreground="White"/></StackPanel>
+      <StackPanel x:Name="sNet" Orientation="Horizontal"><Border x:Name="dNet" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><Path x:Name="iDown" Width="12" Height="12" Stretch="Uniform" Stroke="#5DCAA5" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,3,0" Data="M12 4v15 M6 13l6 6l6 -6"/><TextBlock x:Name="lDown" Text="&#x2193;" Foreground="#A6FFFFFF" Margin="0,0,3,0"/><TextBlock x:Name="oDown" Foreground="White"/><Border Width="7"/><Path x:Name="iUp" Width="12" Height="12" Stretch="Uniform" Stroke="#F0997B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,3,0" Data="M12 20v-15 M6 11l6 -6l6 6"/><TextBlock x:Name="lUp" Text="&#x2191;" Foreground="#A6FFFFFF" Margin="0,0,3,0"/><TextBlock x:Name="oUp" Foreground="White"/></StackPanel>
+      <StackPanel x:Name="sTopC" Orientation="Horizontal"><Border x:Name="dTopC" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><Path x:Name="iTopC" Width="14" Height="14" Stretch="Uniform" Stroke="#FAC775" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,4,0" Data="M4 5h16v14H4z M4 9h16 M7 7h.01 M10 7h.01"/><TextBlock x:Name="oTopCName" Foreground="#CCFFFFFF" MaxWidth="110" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopCVal" Foreground="White" FontWeight="SemiBold" Margin="5,0,0,0"/></StackPanel>
+      <StackPanel x:Name="sTopR" Orientation="Horizontal"><Border x:Name="dTopR" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><Path x:Name="iTopR" Width="14" Height="14" Stretch="Uniform" Stroke="#AFA9EC" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,4,0" Data="M3 7h18v9H3z M7 10h2v3H7z M11 10h2v3h-2z M15 10h2v3h-2z M6 16v3 M10 16v3 M14 16v3 M18 16v3"/><TextBlock x:Name="oTopRName" Foreground="#CCFFFFFF" MaxWidth="100" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="oTopRVal" Foreground="White" FontWeight="SemiBold" Margin="5,0,0,0"/></StackPanel>
+      <StackPanel x:Name="sBatt" Orientation="Horizontal"><Border x:Name="dBatt" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><Path x:Name="iBatt" Width="14" Height="14" Stretch="Uniform" Stroke="#97C459" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,4,0" Data="M3 8h15v8H3z M21 11v2"/><TextBlock x:Name="oBatt" Foreground="White" FontWeight="SemiBold"/></StackPanel>
+      <StackPanel x:Name="sClock" Orientation="Horizontal"><Border x:Name="dClock" Width="1" Height="12" Background="#40FFFFFF" Margin="7,0,7,0" VerticalAlignment="Center"/><Path x:Name="iClock" Width="14" Height="14" Stretch="Uniform" Stroke="#E6FFFFFF" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,4,0" Data="M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0 -18z M12 7v5l3 2"/><TextBlock x:Name="oClock" Foreground="White"/></StackPanel>
     </StackPanel>
   </Border>
   </Grid>
@@ -380,6 +380,9 @@ function Apply-OsdMetrics($o) {
         $o.Div[$k].Visibility = if ($on -and -not $first) { 'Visible' } else { 'Collapsed' }   # no divider before the first item
         if ($on) { $first = $false }
     }
+    $ic = [bool]$cfg.Icons
+    foreach ($e in $o.IconEls) { $e.Visibility = if ($ic) { 'Visible' } else { 'Collapsed' } }
+    foreach ($e in $o.LabelEls) { $e.Visibility = if ($ic) { 'Collapsed' } else { 'Visible' } }
     foreach ($k in $osdKeys) { $o.Seg[$k].MinWidth = 0 }   # reset the grow-only widths (metrics / clock format changed)
     Apply-OsdLook $o
 }
@@ -406,7 +409,8 @@ function Build-Osds {
                 Cpu = $w.FindName('oCpu'); Gpu = $w.FindName('oGpu'); Ram = $w.FindName('oRam'); Down = $w.FindName('oDown'); Up = $w.FindName('oUp')
                 TopCName = $w.FindName('oTopCName'); TopCVal = $w.FindName('oTopCVal'); TopRName = $w.FindName('oTopRName'); TopRVal = $w.FindName('oTopRVal')
                 Batt = $w.FindName('oBatt'); Clock = $w.FindName('oClock'); LineCpu = $w.FindName('oLineCpu'); LineRam = $w.FindName('oLineRam')
-                Full = $w.FindName('oFull'); Scale = $w.FindName('oScale'); Handle = $w.FindName('oHandle'); Collapsed = $false; LeaveAt = $null; Closing = $false; Q = 1.0; Dir = 0; LastT = 0.0; Dark = $false; Shrink = @{}; Ink = (Collect-Ink $w) }
+                Full = $w.FindName('oFull'); Scale = $w.FindName('oScale'); Handle = $w.FindName('oHandle'); IconEls = @(foreach ($nm in 'iCpu','iGpu','iRam','iDown','iUp','iTopC','iTopR','iBatt','iClock') { $w.FindName($nm) }); LabelEls = @(foreach ($nm in 'lCpu','lGpu','lRam','lDown','lUp') { $w.FindName($nm) })
+                Collapsed = $false; LeaveAt = $null; Closing = $false; Q = 1.0; Dir = 0; LastT = 0.0; Dark = $false; Shrink = @{}; Ink = (Collect-Ink $w) }
         Apply-OsdMetrics $o
         $w.Show(); $w.UpdateLayout()
         try { $script:dpi = [Windows.PresentationSource]::FromVisual($w).CompositionTarget.TransformToDevice.M11 } catch {}
@@ -633,13 +637,14 @@ function Collect-Ink($root) {
     while ($stack.Count) {
         $e = $stack.Pop()
         if ($e -is [Windows.Controls.TextBlock] -and $e.Foreground -is [Windows.Media.SolidColorBrush]) { [void]$list.Add(@($e, 'Foreground', $e.Foreground.Color)) }
-        elseif ($e -is [Windows.Shapes.Polyline] -and $e.Stroke -is [Windows.Media.SolidColorBrush]) { [void]$list.Add(@($e, 'Stroke', $e.Stroke.Color)) }
+        elseif ($e -is [Windows.Shapes.Shape] -and $e.Stroke -is [Windows.Media.SolidColorBrush]) { [void]$list.Add(@($e, 'Stroke', $e.Stroke.Color)) }
         elseif ($e -is [Windows.Controls.Border] -and $e.Name -notin @('oBg', 'oHalo', 'oPad', 'oHandle') -and $e.Background -is [Windows.Media.SolidColorBrush]) { [void]$list.Add(@($e, 'Background', $e.Background.Color)) }
         foreach ($c in [Windows.LogicalTreeHelper]::GetChildren($e)) { if ($c -is [Windows.DependencyObject]) { $stack.Push($c) } }
     }
     ,$list
 }
-$inkMap = @{ 'FF9FE1CB' = 'FF0F6E56'; 'FF85B7EB' = 'FF185FA5'; 'FFAFA9EC' = 'FF534AB7'; 'FFF09595' = 'FFA32D2D' }
+$inkMap = @{ 'FF9FE1CB' = 'FF0F6E56'; 'FF85B7EB' = 'FF185FA5'; 'FFAFA9EC' = 'FF534AB7'; 'FFF09595' = 'FFA32D2D'
+            'FF5DCAA5' = 'FF0F6E56'; 'FFF0997B' = 'FF993C1D'; 'FFFAC775' = 'FF854F0B'; 'FF97C459' = 'FF3B6D11' }
 function Ink-Color($c, [bool]$dark) {
     if (-not $dark) { return $c }
     $k = '{0:X2}{1:X2}{2:X2}{3:X2}' -f 255, $c.R, $c.G, $c.B
@@ -754,6 +759,7 @@ $settingsXaml = @"
       <TextBlock Style="{StaticResource Head}" Text="Overlay"/>
       <CheckBox x:Name="sShowO" Width="300" Content="Show the overlay  (Ctrl+Alt+O)"/>
       <CheckBox x:Name="sStart" Width="300" Content="Start with Windows"/>
+      <CheckBox x:Name="sIcons" Width="300" Content="Coloured icons  (off = text labels)"/>
 
       <TextBlock Style="{StaticResource Head}" Text="Look"/>
       <StackPanel Orientation="Horizontal">
@@ -807,6 +813,7 @@ function Sync-Settings {
     $s = $script:sUi
     $s.sShowO.IsChecked = [bool]$cfg.Overlay
     $s.sStart.IsChecked = Test-Path $startupLnk
+    $s.sIcons.IsChecked = [bool]$cfg.Icons
     $s.sLO.IsChecked = ($cfg.Look -ne 'Solid'); $s.sLS.IsChecked = ($cfg.Look -eq 'Solid')
     $s.sFree.IsChecked = [bool]$cfg.OverlayFree
     $s.sAuto.IsChecked = [bool]$cfg.OverlayAutoHide
@@ -835,10 +842,11 @@ function Open-Settings {
     $sw = [Windows.Markup.XamlReader]::Parse($settingsXaml)
     $script:sWin = $sw
     $script:sUi = @{}
-    foreach ($n in 'sRoot','sClose','sR1','sR2','sR5','sSelf','sPos','sFree','sAuto','sAnim','sGame','sInk','sShowO','sStart','sLO','sLS','sC24','sC12','sOsdChecks') { $script:sUi[$n] = $sw.FindName($n) }
+    foreach ($n in 'sRoot','sClose','sR1','sR2','sR5','sSelf','sPos','sFree','sAuto','sAnim','sGame','sInk','sShowO','sStart','sIcons','sLO','sLS','sC24','sC12','sOsdChecks') { $script:sUi[$n] = $sw.FindName($n) }
     $s = $script:sUi
 
     $s.sStart.Add_Click({ Set-Startup ([bool]$this.IsChecked) })
+    $s.sIcons.Add_Click({ $cfg.Icons = [bool]$this.IsChecked; Save-Cfg; Apply-Metrics })
     $s.sShowO.Add_Click({ if ([bool]$this.IsChecked -ne [bool]$cfg.Overlay) { Toggle-Overlay } })
     $s.sLO.Tag = 'Outline'; $s.sLS.Tag = 'Solid'
     $s.sLO.Add_Click({ Set-Look 'Outline' }); $s.sLS.Add_Click({ Set-Look 'Solid' })
