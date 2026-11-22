@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v13  -  game overlay system monitor for Windows
+#  LiquidHUD v14  -  game overlay system monitor for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -121,7 +121,7 @@ $cfgFile = Join-Path $cfgDir 'settings.json'
 if (-not (Test-Path $cfgDir)) { New-Item -ItemType Directory -Path $cfgDir | Out-Null }
 $cfg = [pscustomobject]@{
     Look = 'Outline'; Overlay = $true; OverlayAll = $true; OverlayPos = 2; OverlayFree = $false; OverlayAutoHide = $true; GameMode = $true; AdaptiveInk = $true; OverlayX = 0.98; OverlayY = 0.01
-    Interval = 2; Clock24 = $true; TrayTipShown = $false
+    Interval = 2; Clock24 = $true; TrayTipShown = $false; Animations = $true
     OsdShow = [pscustomobject][ordered]@{ Cpu = $true; Gpu = $true; Ram = $true; Net = $true; TopC = $true; TopR = $false; Batt = $false; Graph = $true; Clock = $true }
 }
 if (Test-Path $cfgFile) {
@@ -320,7 +320,8 @@ $osdXaml = @"
         FontFamily="Segoe UI Variable Display, Segoe UI" UseLayoutRounding="True">
   <Grid Margin="1">
   <Border x:Name="oHandle" Width="110" Height="5" CornerRadius="2.5" Background="#E6FFFFFF" BorderBrush="#73000000" BorderThickness="0.6" Visibility="Collapsed" Margin="6,3,6,3"/>
-  <Grid x:Name="oFull">
+  <Grid x:Name="oFull" RenderTransformOrigin="0.5,0">
+    <Grid.RenderTransform><ScaleTransform x:Name="oScale" ScaleX="1" ScaleY="1"/></Grid.RenderTransform>
   <Border x:Name="oHalo" CornerRadius="12" Margin="-1" BorderThickness="1" BorderBrush="#66000000"/>
   <Border x:Name="oBg" CornerRadius="11" Background="#F00C0E16" BorderBrush="#40FFFFFF" BorderThickness="1"/>
   <Border x:Name="oPad" Padding="9,4,10,5">
@@ -413,7 +414,7 @@ function Build-Osds {
                 Cpu = $w.FindName('oCpu'); Gpu = $w.FindName('oGpu'); Ram = $w.FindName('oRam'); Down = $w.FindName('oDown'); Up = $w.FindName('oUp')
                 TopCName = $w.FindName('oTopCName'); TopCVal = $w.FindName('oTopCVal'); TopRName = $w.FindName('oTopRName'); TopRVal = $w.FindName('oTopRVal')
                 Batt = $w.FindName('oBatt'); Clock = $w.FindName('oClock'); LineCpu = $w.FindName('oLineCpu'); LineRam = $w.FindName('oLineRam')
-                Full = $w.FindName('oFull'); Handle = $w.FindName('oHandle'); Collapsed = $false; LeaveAt = $null; Dark = $false; Shrink = @{}; Ink = (Collect-Ink $w) }
+                Full = $w.FindName('oFull'); Scale = $w.FindName('oScale'); Handle = $w.FindName('oHandle'); Collapsed = $false; LeaveAt = $null; Closing = $false; CloseAt = $null; Dark = $false; Shrink = @{}; Ink = (Collect-Ink $w) }
         Apply-OsdMetrics $o
         $w.Show(); $w.UpdateLayout()
         try { $script:dpi = [Windows.PresentationSource]::FromVisual($w).CompositionTarget.TransformToDevice.M11 } catch {}
@@ -470,23 +471,76 @@ function Set-Free($on) {
 # =====================================================================
 $script:inFullscreen = $false
 function AutoHide-Active { $cfg.Overlay -and $cfg.OverlayAutoHide -and -not $cfg.OverlayFree -and [int]$cfg.OverlayPos -ne 5 -and -not ($cfg.GameMode -and $script:inFullscreen) }
-$fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 1.0, [TimeSpan]::FromMilliseconds(160))
-$ease0 = New-Object Windows.Media.Animation.CubicEase; $ease0.EasingMode = 'EaseOut'; $fadeIn.EasingFunction = $ease0; $fadeIn.Freeze()
-function Set-OsdCollapsed($o, [bool]$c) {
-    if ($o.Collapsed -eq $c) { return }
-    $o.Collapsed = $c; $o.LeaveAt = $null
-    if ($c) {
-        $o.Full.Visibility = 'Collapsed'; $o.Handle.Visibility = 'Visible'
-    } else {
-        $o.Handle.Visibility = 'Collapsed'; $o.Full.Visibility = 'Visible'
-        $o.Full.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeIn)
-    }
+# ---------- smooth open / close (scale + fade, growing out of the thin bar) ----------
+$openMs = 320; $closeMs = 280
+$easeOut = New-Object Windows.Media.Animation.CubicEase; $easeOut.EasingMode = 'EaseOut'; $easeOut.Freeze()
+$easeIn = New-Object Windows.Media.Animation.CubicEase; $easeIn.EasingMode = 'EaseIn'; $easeIn.Freeze()
+function New-Anim($to, [int]$ms, $ease, $from = $null) {
+    $a = New-Object Windows.Media.Animation.DoubleAnimation
+    if ($null -ne $from) { $a.From = [double]$from }      # no From = continue from wherever it is now
+    $a.To = [double]$to; $a.Duration = [TimeSpan]::FromMilliseconds($ms); $a.EasingFunction = $ease
+    $a.Freeze(); $a
+}
+function Animate-Full($o, $to, [int]$ms, $ease, $from = $null) {
+    $sx = [Windows.Media.ScaleTransform]::ScaleXProperty; $sy = [Windows.Media.ScaleTransform]::ScaleYProperty
+    $op = [Windows.UIElement]::OpacityProperty
+    $fs = if ($null -ne $from) { 0.3 + 0.7 * $from } else { $null }
+    $o.Scale.BeginAnimation($sx, (New-Anim (0.3 + 0.7 * $to) $ms $ease $fs))
+    $o.Scale.BeginAnimation($sy, (New-Anim (0.3 + 0.7 * $to) $ms $ease $fs))
+    $o.Full.BeginAnimation($op, (New-Anim $to $ms $ease $from))
+}
+function Reset-Full($o) {
+    $o.Scale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $null); $o.Scale.ScaleX = 1
+    $o.Scale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $null); $o.Scale.ScaleY = 1
+    $o.Full.BeginAnimation([Windows.UIElement]::OpacityProperty, $null); $o.Full.Opacity = 1
+}
+# grow from / shrink into the pill: left, center or right; top or bottom
+function Set-Origin($o) {
+    $p = [int]$cfg.OverlayPos
+    $x = if (@(0, 3) -contains $p) { 0 } elseif (@(2, 4) -contains $p) { 1 } else { 0.5 }
+    $y = if (@(3, 4, 6) -contains $p) { 1 } else { 0 }
+    $o.Full.RenderTransformOrigin = New-Object Windows.Point($x, $y)
+}
+function Finish-Collapse($o) {
+    $o.Closing = $false; $o.CloseAt = $null; $o.Collapsed = $true; $o.LeaveAt = $null
+    Reset-Full $o
+    $o.Full.Visibility = 'Collapsed'; $o.Handle.Visibility = 'Visible'
+    if ($cfg.Animations) { $o.Handle.BeginAnimation([Windows.UIElement]::OpacityProperty, (New-Anim 1 180 $easeOut 0)) }
     Apply-OsdLook $o
     $o.Win.UpdateLayout(); Place-Osd $o
 }
+function Set-OsdCollapsed($o, [bool]$c, [bool]$instant = $false) {
+    $anim = [bool]$cfg.Animations -and -not $instant
+    if ($c) {
+        if ($o.Collapsed) { return }
+        if ($anim) {
+            if ($o.Closing) { return }
+            # close slowly: shrink + fade toward the pill, then swap to the pill (finished by the hover timer)
+            $o.Closing = $true; $o.CloseAt = [DateTime]::Now.AddMilliseconds($closeMs)
+            Set-Origin $o
+            Animate-Full $o 0 $closeMs $easeIn
+            return
+        }
+        Finish-Collapse $o
+        return
+    }
+    if ($o.Closing) {
+        # mouse came back while closing: turn around smoothly from wherever it is
+        $o.Closing = $false; $o.CloseAt = $null; $o.LeaveAt = $null
+        if ($anim) { Animate-Full $o 1 $openMs $easeOut } else { Reset-Full $o }
+        return
+    }
+    if (-not $o.Collapsed) { return }
+    $o.Collapsed = $false; $o.LeaveAt = $null
+    $o.Handle.BeginAnimation([Windows.UIElement]::OpacityProperty, $null)
+    $o.Handle.Visibility = 'Collapsed'; $o.Full.Visibility = 'Visible'
+    Apply-OsdLook $o
+    $o.Win.UpdateLayout(); Place-Osd $o
+    if ($anim) { Set-Origin $o; Animate-Full $o 1 $openMs $easeOut 0 } else { Reset-Full $o }
+}
 function Apply-AutoHide {
     $on = AutoHide-Active
-    foreach ($o in $script:osds) { Set-OsdCollapsed $o $on }
+    foreach ($o in $script:osds) { Set-OsdCollapsed $o $on $true }
     if ($on) { $hoverTimer.Start() } else { $hoverTimer.Stop() }
 }
 $script:watchN = 0
@@ -519,11 +573,12 @@ function Apply-HandleInk($o) {
     if ($o.Dark) { $o.Handle.Background = $pillDark; $o.Handle.BorderBrush = $haloLight } else { $o.Handle.Background = $pillLight; $o.Handle.BorderBrush = $haloDark }
 }
 $hoverTimer = New-Object Windows.Threading.DispatcherTimer
-$hoverTimer.Interval = [TimeSpan]::FromMilliseconds(100)
+$hoverTimer.Interval = [TimeSpan]::FromMilliseconds(80)
 $hoverTimer.Add_Tick({
     try {
         $p = [System.Windows.Forms.Cursor]::Position
         foreach ($o in $script:osds) {
+            if ($o.Closing -and [DateTime]::Now -ge $o.CloseAt) { Finish-Collapse $o; continue }
             $rc = [LhNative]::Rect($o.H); $L = $rc[0]; $T = $rc[1]; $R = $rc[2]; $B = $rc[3]
             $sb = [System.Windows.Forms.Screen]::FromHandle($o.H).Bounds
             # generous hot zone around the thin pill, a grace margin around the full bar
@@ -535,9 +590,9 @@ $hoverTimer.Add_Tick({
             $inside = ($p.X -ge $L - $dx) -and ($p.X -le $R + $dx) -and ($p.Y -ge $zT) -and ($p.Y -le $zB)
             if ($inside) {
                 $o.LeaveAt = $null
-                if ($o.Collapsed) { Set-OsdCollapsed $o $false }
-            } elseif (-not $o.Collapsed) {
-                if (-not $o.LeaveAt) { $o.LeaveAt = [DateTime]::Now.AddMilliseconds(500) }
+                if ($o.Collapsed -or $o.Closing) { Set-OsdCollapsed $o $false }
+            } elseif (-not $o.Collapsed -and -not $o.Closing) {
+                if (-not $o.LeaveAt) { $o.LeaveAt = [DateTime]::Now.AddMilliseconds(400) }
                 elseif ([DateTime]::Now -ge $o.LeaveAt) { Set-OsdCollapsed $o $true }
             }
         }
@@ -688,6 +743,7 @@ $settingsXaml = @"
       <WrapPanel x:Name="sPos"/>
       <CheckBox x:Name="sFree" Width="300" Margin="0,6,0,0" Content="Free move  (drag the overlay, untick to lock it)"/>
       <CheckBox x:Name="sAuto" Width="300" Margin="0,0,0,0" Content="Auto-hide  (thin bar, hover to show)"/>
+      <CheckBox x:Name="sAnim" Width="300" Margin="0,8,0,0" Content="Smooth open / close animation"/>
       <CheckBox x:Name="sGame" Width="300" Margin="0,8,0,0" Content="Game mode  (stay open over fullscreen apps)"/>
       <CheckBox x:Name="sInk" Width="300" Margin="0,8,0,0" Content="Adaptive text  (black on bright, white on dark)"/>
 
@@ -732,6 +788,7 @@ function Sync-Settings {
     $s.sLO.IsChecked = ($cfg.Look -ne 'Solid'); $s.sLS.IsChecked = ($cfg.Look -eq 'Solid')
     $s.sFree.IsChecked = [bool]$cfg.OverlayFree
     $s.sAuto.IsChecked = [bool]$cfg.OverlayAutoHide
+    $s.sAnim.IsChecked = [bool]$cfg.Animations
     $s.sGame.IsChecked = [bool]$cfg.GameMode
     $s.sInk.IsChecked = [bool]$cfg.AdaptiveInk
     $s.sC24.IsChecked = [bool]$cfg.Clock24; $s.sC12.IsChecked = -not [bool]$cfg.Clock24
@@ -756,13 +813,29 @@ function Open-Settings {
     $sw = [Windows.Markup.XamlReader]::Parse($settingsXaml)
     $script:sWin = $sw
     $script:sUi = @{}
-    foreach ($n in 'sRoot','sClose','sR1','sR2','sR5','sSelf','sPos','sFree','sAuto','sGame','sInk','sShowO','sStart','sLO','sLS','sC24','sC12','sOsdChecks') { $script:sUi[$n] = $sw.FindName($n) }
+    foreach ($n in 'sRoot','sClose','sR1','sR2','sR5','sSelf','sPos','sFree','sAuto','sAnim','sGame','sInk','sShowO','sStart','sLO','sLS','sC24','sC12','sOsdChecks') { $script:sUi[$n] = $sw.FindName($n) }
     $s = $script:sUi
 
     $s.sStart.Add_Click({ Set-Startup ([bool]$this.IsChecked) })
     $s.sShowO.Add_Click({ if ([bool]$this.IsChecked -ne [bool]$cfg.Overlay) { Toggle-Overlay } })
     $s.sLO.Tag = 'Outline'; $s.sLS.Tag = 'Solid'
     $s.sLO.Add_Click({ Set-Look 'Outline' }); $s.sLS.Add_Click({ Set-Look 'Solid' })
+
+    # overlay position buttons + behaviour toggles (restored: lost in v13)
+    $script:posRadios = @()
+    foreach ($i in $posOrder) {
+        $rb = New-Object Windows.Controls.RadioButton
+        $rb.GroupName = 'pos'; $rb.Content = $posNames[$i]; $rb.Tag = $i
+        $rb.IsChecked = ([int]$cfg.OverlayPos -eq $i)
+        if ($i -eq 5) { $rb.ToolTip = 'Where you last dropped it with Free move' }
+        $rb.Add_Click({ Set-Pos ([int]$this.Tag) })
+        [void]$s.sPos.Children.Add($rb); $script:posRadios += $rb
+    }
+    $s.sFree.Add_Click({ Set-Free ([bool]$this.IsChecked) })
+    $s.sAuto.Add_Click({ Set-AutoHide ([bool]$this.IsChecked) })
+    $s.sAnim.Add_Click({ $cfg.Animations = [bool]$this.IsChecked; Save-Cfg })
+    $s.sGame.Add_Click({ $cfg.GameMode = [bool]$this.IsChecked; Save-Cfg; $script:inFullscreen = $false; Apply-AutoHide })
+    $s.sInk.Add_Click({ $cfg.AdaptiveInk = [bool]$this.IsChecked; Save-Cfg })
 
     foreach ($k in $osdLabels.Keys) {
         $cb = New-Object Windows.Controls.CheckBox
