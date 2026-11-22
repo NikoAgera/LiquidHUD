@@ -4,11 +4,11 @@ Ideas to build next. Each one has a GitHub issue labelled [`roadmap`](https://gi
 
 ## Optional animations ([#29](https://github.com/NikoAgera/LiquidHUD/issues/29))
 **Off by default.** Layered windows redraw completely on every animation frame, which costs CPU.
-- [ ] Overlay slides out of the thin bar on hover (not only a fade)
+- [x] Overlay grows out of the thin bar on hover and shrinks back slowly (v14, #33)
 - [ ] Numbers count up and down smoothly
 - [ ] Mini graph draws in smoothly
 - [ ] CPU/RAM value pulses when it goes red (over 85 %)
-- [ ] Setting: *Off / Subtle / Full*, with the CPU cost shown live in Settings
+- [x] On/off setting (v14). Still to do: *Off / Subtle / Full*
 
 ## Maybe later
 - [ ] More tray-icon info: a tiny live CPU meter drawn inside the icon
