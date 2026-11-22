@@ -1,152 +1,116 @@
 # LiquidHUD
 
-**A see-through system monitor widget and game overlay for Windows, built from scratch with nothing but PowerShell and WPF.**
-No Rainmeter, no HWiNFO, no installer, no admin rights. One `.ps1` file.
+**A tiny game-overlay system monitor for Windows, built with nothing but PowerShell and WPF.**
+No installer, no Rainmeter, no HWiNFO, no admin rights. One `.ps1` file that lives in your system tray.
 
-![LiquidHUD on the desktop: widget and overlay bar in the Outline look](docs/images/hero.png)
+![LiquidHUD: overlay bar at the top, tray icon and menu at the bottom right](docs/images/hero.png)
 
 > Images in this README are rendered previews of the UI.
 
 ---
 
-## Features
+## What it does
 
-| | |
-|---|---|
-| **Live stats** | CPU, GPU, RAM, **every disk in your PC**, network up/down, battery, uptime, top CPU app, top RAM app, clock |
-| **60-second graph** | CPU and GPU history |
-| **Two looks** | **Outline** (text + frame, see straight through) or **Solid** (filled + frame), for both the widget and the overlay |
-| **Pick what's on screen** | Big widget, game overlay, or both |
-| **Game overlay** | Thin click-through bar that stays on top of every app, on every monitor |
-| **Global hotkeys** | Work while you're in a game |
-| **Pin or free-move the overlay** | Pin it to any corner or the top center, or drag it anywhere and lock it there |
-| **Pick your metrics** | Tick what you want to see. Unticked metrics aren't collected at all |
-| **Lightweight** | Runs at BelowNormal priority with a 2 s refresh and periodic memory trim |
-| **Status pill** | Shows `chill` below 40 % CPU, `busy` from 40–85 %, and `hot!` above 85 % (numbers also turn red) |
+- **A thin bar on top of everything:** games, browsers, the desktop. It's click-through, so it never blocks anything
+- **Live stats:**
+  - CPU and GPU %
+  - RAM %
+  - a mini CPU + RAM graph
+  - network down/up
+  - the top CPU app and the top RAM app
+  - battery
+  - a clock (12h or 24h)
+- **Lives in the system tray.** Open *Show hidden icons* on the taskbar, **click** the LiquidHUD icon for Settings, and **right-click** it for the menu
+- **Auto-hide:** shrinks to an iPhone-style thin bar, and expands when you hover it
+- **Game mode:** stays fully open over fullscreen and borderless games
+- **Adaptive text:** black text on bright scenes, white on dark ones
+- **Lightweight:**
+  - BelowNormal priority and software rendering
+  - metrics you don't tick aren't collected at all
 
-![Outline look vs Solid look, widget and overlay](docs/images/looks.png)
+All numbers are read live from Windows, from the same sources Task Manager uses:
+- performance counters for CPU and GPU
+- memory status, network adapters and the power status
+- the process list for the top apps
 
 ---
 
-## Requirements
+## Install
 
-- **Windows 10 or 11.**
-- **Windows PowerShell 5.1.** It's already built into Windows, so you don't need to install anything.
-
----
-
-## Install (step by step)
-
-### Step 1: Download
-
-Pick **one**:
-
-- **Easiest:** click the green **Code** button at the top of this page, then **Download ZIP**.
-- **With git:**
-  ```powershell
-  git clone https://github.com/NikoAgera/LiquidHUD.git
-  ```
-
-### Step 2: Unzip
-
-Right-click the ZIP, choose **Extract All…**, and pick a permanent spot, for example:
-
-```
-C:\Users\<you>\Documents\LiquidHUD
-```
-
-> Don't run it from inside the ZIP or from the Downloads folder if you plan to use *Start with Windows*. The startup shortcut points at the file's location.
-
-### Step 3: Unblock the files (one time)
-
-Windows marks downloaded files as "from the internet". To clear that mark, open PowerShell in the folder and run:
-
-```powershell
-Get-ChildItem -Recurse | Unblock-File
-```
-
-Or right-click `LiquidHUD.ps1`, choose **Properties**, tick **Unblock**, then click **OK**.
-
-### Step 4: Run it
-
-Double-click **`Start-LiquidHUD.bat`**.
-
-The widget appears in the top-right of your screen. The `.bat` launches PowerShell hidden, with `-ExecutionPolicy Bypass` for this one script only, so your system's execution policy isn't changed.
+1. **Download:** click the green **Code** button, then **Download ZIP**. Or use git:
+   ```powershell
+   git clone https://github.com/NikoAgera/LiquidHUD.git
+   ```
+2. **Unzip** it to a permanent folder, for example `Documents\LiquidHUD`.
+3. **Unblock** it (one time only). Open PowerShell in that folder and run:
+   ```powershell
+   Get-ChildItem -Recurse | Unblock-File
+   ```
+4. **Run:** double-click **`Start-LiquidHUD.bat`**. The overlay appears and an icon is added to the tray. The first time, a notification shows you where the icon is.
+5. **Start with Windows** (optional): right-click the tray icon and choose **Start with Windows**.
 
 <details>
-<summary>Prefer to run it manually?</summary>
+<summary>Run it manually</summary>
 
 ```powershell
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\LiquidHUD.ps1
 ```
 </details>
 
-### Step 5: Make it yours
+---
 
-- **Drag** the widget anywhere. Its position is remembered.
-- **Right-click** the widget and choose **Settings**, or press `Ctrl+Alt+S`.
-- **Right-click** the widget and choose **Start with Windows** if you want it on every boot.
+## Tray icon
+
+| Action | What happens |
+|---|---|
+| **Click** the icon | Opens Settings |
+| **Right-click** the icon | Opens the menu (overlay on/off, position, free move, auto-hide, look, start with Windows, exit) |
+| **Hover** the icon | Shows live CPU and RAM in the tooltip |
+
+> In Windows 11, new tray icons go under **Show hidden icons** (the `^` on the taskbar). To keep LiquidHUD always visible, drag its icon onto the taskbar.
 
 ---
 
 ## Settings
 
-![Settings window and right-click menu](docs/images/settings.png)
+![Settings window](docs/images/settings.png)
 
 | Setting | What it does |
 |---|---|
-| **Show** | Tick **Big widget** and/or **Game overlay**. If both are off, press `Ctrl+Alt+S` to come back |
-| **Look** | **Outline**: text and a thin frame only (1 px white at 45 %, with a 1 px dark ring outside it and a soft dark halo behind the text), so you see straight through to what's behind and it stays readable on light *and* dark wallpapers. **Solid**: text on a fully coloured background with a frame |
-| **Clock** | **24h** (`18:46`) or **12h** (`6:46 PM`), for both the widget and the overlay |
-| **Overlay position** | Top left, Top center, Top right, Bottom left, **Bottom center**, Bottom right, or Custom (where you last dropped it). Centered positions stay put because the bar has a fixed width |
-| **Auto-hide** | On by default. When idle, the overlay shrinks to a thin iPhone-style bar at its edge. Hover it to expand the overlay, and move away to collapse it. Works in every pinned position, but not in Free move or Custom |
-| **Game mode** | On by default. When a fullscreen or borderless-fullscreen app is in front (a game or a video), auto-hide pauses and the full overlay stays open. Back on the desktop, it auto-hides again |
-| **Adaptive text** | On by default (Outline look). LiquidHUD checks how bright the area next to the bar is: **black text** on bright scenes, **white text** on dark ones |
-| **Free move** | Tick it, then drag the overlay anywhere (it gets a dashed outline). Untick it and the overlay locks in place and goes back to click-through, so it never blocks what's behind it |
-| **Disks** | Every ready fixed or removable drive is listed with its label and size. Tick the ones you want on the widget. New drives show up the next time you open Settings |
-| **Big widget shows** | Tick a metric to show it on the widget |
-| **Game overlay shows** | A separate list for the overlay: CPU, GPU, RAM, **Mini graph** (CPU + RAM sparkline), Network, Top CPU app, Top RAM app, Battery, Clock. A metric is only collected if the widget or the overlay needs it |
+| **Show the overlay** | Turns the overlay on or off (`Ctrl+Alt+O`) |
+| **Start with Windows** | Adds or removes a shortcut in your Startup folder |
+| **Look** | **Outline** is text and a thin frame, so you see straight through it. **Solid** is a filled dark bar |
+| **Overlay position** | Top left, Top center, Top right, Bottom left, Bottom center, Bottom right, or Custom |
+| **Free move** | Drag the overlay anywhere. Untick it to lock it in place, and it goes back to click-through. It always stays on screen |
+| **Auto-hide** | Shrinks to a thin bar when idle and expands on hover. Not used in Free move or Custom |
+| **Game mode** | Keeps the overlay open while a fullscreen or borderless app is in front |
+| **Adaptive text** | In the Outline look, black text on bright backgrounds and white on dark ones |
+| **Clock** | 24h (`18:46`) or 12h (`6:46 PM`) |
+| **Overlay shows** | Tick what you want: CPU, GPU, RAM, Mini graph, Network, Top CPU app, Top RAM app, Battery, Clock |
 | **Refresh rate** | 1 s, 2 s or 5 s. Slower uses less CPU |
-| **LiquidHUD itself is using** | Live RAM and CPU used by the widget itself |
-
+| **LiquidHUD itself is using** | Live RAM and CPU used by LiquidHUD |
 
 Settings are saved to `%APPDATA%\LiquidHUD\settings.json`.
 
----
+### Looks
 
-## Game overlay
-
-![Outline overlay free-moved under the browser's address bar](docs/images/browser.png)
+![Outline and Solid](docs/images/looks.png)
 
 ### Auto-hide
 
-![Auto-hide: thin bar when idle, full overlay on hover](docs/images/autohide.png)
+![Thin bar when idle, full overlay on hover](docs/images/autohide.png)
 
-LiquidHUD checks the cursor position every 70 ms, and only while auto-hide is on. That means the overlay **stays click-through**: hovering it never blocks the window underneath.
-
-> In games that lock or hide the cursor (most FPS games), you can't hover the bar. **Game mode** handles this: when a fullscreen or borderless game is in front, the full overlay stays open on its own.
+LiquidHUD checks the cursor position every 100 ms, and only while auto-hide is on. The overlay **stays click-through**, so hovering it never blocks the window underneath.
 
 ### Adaptive text
 
 ![Black text on a bright scene, white on a dark one](docs/images/adaptive.png)
 
-Once a second, LiquidHUD samples an 8 px strip right next to the bar (never the bar itself). Above 62 % brightness it switches to black text, and below 45 % it switches back to white. The gap between the two thresholds stops it from flickering.
+Every 2 s, LiquidHUD samples an 8 px strip right next to the bar. Above 62 % brightness it switches to black text, and below 45 % it switches back to white. The gap between the thresholds stops it from flickering.
 
-The bar is compact: thin dividers between items, a 56×18 mini graph (blue = CPU, purple = RAM), and every item sized to its text. Item widths can only **grow, never shrink**, while it's running, so the bar stays tight and a centered bar never jumps.
+### Out of the way
 
-![Outline and Solid on a white wallpaper](docs/images/light.png)
-
-1. Press **`Ctrl+Alt+O`** to turn the overlay on.
-2. Press **`Ctrl+Alt+P`** to cycle its pinned position: top left, top center, top right, bottom left, bottom center, bottom right, custom.
-   - **Or put it anywhere:** press **`Ctrl+Alt+M`** (or tick **Free move** in Settings), drag the bar where you want it, then press `Ctrl+Alt+M` again to lock it. Its spot is saved as a fraction of the screen, so it lands in the same place on every monitor.
-3. Press **`Ctrl+Alt+H`** to turn the big widget off so only the overlay stays (or untick **Big widget** in Settings).
-4. If the bar sits over something you need to see, like browser tabs, use the **Outline** look and/or **Free move** it out of the way.
-
-When it's locked, the overlay is **click-through**: your mouse goes straight to the game, and it never steals focus or shows up in Alt+Tab.
-
-> **Important:** set your game's display mode to **Borderless** or **Windowed Fullscreen**. In **Exclusive Fullscreen** the game takes over the whole display and no overlay can draw on top. That's a Windows limit, not a bug in LiquidHUD.
-
-**Anti-cheat:** LiquidHUD is a plain top-most window. It doesn't inject into, hook or read from any game process. It only reads the same public Windows counters that Task Manager uses.
+![Outline overlay free-moved under the browser's address bar](docs/images/browser.png)
 
 ---
 
@@ -155,52 +119,43 @@ When it's locked, the overlay is **click-through**: your mouse goes straight to 
 | Keys | Action |
 |---|---|
 | `Ctrl+Alt+S` | Open Settings |
-| `Ctrl+Alt+O` | Toggle game overlay |
+| `Ctrl+Alt+O` | Overlay on/off |
 | `Ctrl+Alt+P` | Cycle overlay position |
-| `Ctrl+Alt+M` | Free move overlay on/off (drag it, then press again to lock) |
-| `Ctrl+Alt+H` | Big widget on/off |
-| Double-click widget | Open Task Manager |
-| Right-click widget | Menu |
+| `Ctrl+Alt+M` | Free move on/off (drag it, then press again to lock) |
+
+---
+
+## Games
+
+- Set the game's display mode to **Borderless** or **Windowed Fullscreen**. In **Exclusive Fullscreen**, the game takes over the whole display and no overlay can draw on top. That's a Windows limit.
+- **Anti-cheat:** LiquidHUD is a plain top-most window. It doesn't inject into, hook or read from any game process.
+- **Game mode** keeps the overlay open over fullscreen and borderless apps, because games usually lock the cursor, so you couldn't hover the auto-hide bar anyway.
 
 ---
 
 ## How it works
 
 ```
-+------------------------------+       synchronized        +-------------------------+
-|  Background runspace         |        hashtable          |  UI thread (WPF)        |
-|  BelowNormal priority        |  ---------------------->  |  DispatcherTimer        |
-|                              |                           |                         |
-|  PerformanceCounter (CPU,GPU)|                           |  Widget window          |
-|  ComputerInfo (RAM)          |                           |   (Outline / Solid)     |
-|  DriveInfo (all disks)       |                           |  Overlay window(s)      |
-|  NetworkInterface (net)      |                           |   (layered, click-thru) |
-|  PowerStatus (battery)       |                           |  Settings window        |
-|  Process list (top apps)     |                           |                         |
-+------------------------------+                           +-------------------------+
++------------------------------+   synchronized    +----------------------------+
+|  Background runspace         |     hashtable     |  UI thread (WPF)           |
+|  BelowNormal priority        |  -------------->  |                            |
+|  PerformanceCounter CPU/GPU  |                   |  Overlay window(s)         |
+|  ComputerInfo (RAM)          |                   |   layered, click-through,  |
+|  NetworkInterface (net)      |                   |   one per monitor          |
+|  PowerStatus (battery)       |                   |  Settings window           |
+|  Process list (top apps)     |                   |  Tray icon (NotifyIcon)    |
++------------------------------+                   +----------------------------+
 ```
 
-- **Windows:** per-pixel-alpha (layered) WPF windows. In the Outline look the widget keeps a 1 % fill so you can still grab it and drag it, and the text gets a soft shadow so it stays readable on any wallpaper.
-- **Overlay:** a layered window with the extended styles `WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`. LiquidHUD calls `SetWindowPos(HWND_TOPMOST)` every tick so the overlay stays on top.
+- **Overlay:** a layered WPF window with `WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, kept on top with `SetWindowPos(HWND_TOPMOST)`.
+- **Tray:** a WinForms `NotifyIcon`, with an icon drawn in code. The dark WPF menu opens at the cursor.
 - **Hotkeys:** `RegisterHotKey` on a hidden message window.
 - **Low cost:**
-  - The data collection runs on its own thread at BelowNormal priority.
-  - GPU counters are created only when GPU is ticked, and refreshed every 30 s.
-  - The process scan for top apps runs every 5 s, and only when one of those metrics is ticked.
-  - Text only re-renders when it changes, and bars only animate when their value changes.
-  - The working set is trimmed every 60 s.
-
-### Expected resource use
-
-> v12 switched to **software rendering** and removed the per-update bar animations. Those two changes were the main RAM and CPU costs. Settings now shows *RAM in use* (about what Task Manager shows) and *reserved* (commit).
-
-These are estimates. Open **Settings** to see the live numbers on your machine.
-
-
-| | |
-|---|---|
-| CPU | ~0.1–0.5 % at a 2 s refresh |
-| RAM | ~50–80 MB. This is mostly the PowerShell and WPF runtime itself, so it's the practical floor for a script-based app |
+  - software rendering
+  - GPU counters only when GPU is ticked
+  - process scan every 8 s, and only when a top-app metric is ticked
+  - text only re-renders when it changes
+  - memory trimmed every 60 s
 
 ---
 
@@ -208,19 +163,19 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 
 | Problem | Fix |
 |---|---|
-| **Nothing happens** when I double-click the `.bat` | Run Step 3 (Unblock). Then try the manual command from Step 4 in a PowerShell window so you can see any error |
-| **I want to quit, but nothing is on screen** | Press `Ctrl+Alt+S` for Settings, or `Ctrl+Alt+H` to show the widget, then right-click and choose **Exit**. Or open Task Manager and end **Windows PowerShell** |
+| **Nothing happens** | Run step 3 (Unblock). Then try the manual command so you can see any error |
+| **I can't find the tray icon** | Click `^` (*Show hidden icons*) on the taskbar. You can drag the icon onto the taskbar to keep it visible |
+| **I want to quit** | Right-click the tray icon and choose **Exit**. Or end **Windows PowerShell** in Task Manager |
 | **GPU shows `n/a`** | Your GPU driver doesn't expose the `GPU Engine` counters. Update your graphics driver |
-| **The overlay hides tabs or buttons behind it** | Switch **Look** to **Outline**, or turn on **Free move** (`Ctrl+Alt+M`) and drag it somewhere empty |
 | **Overlay not visible in a game** | Switch the game to Borderless or Windowed Fullscreen |
-| **The overlay is in the wrong spot on a second monitor** | Mixed DPI scaling across monitors can offset it. Untick **Overlay on all monitors** to keep it on the main screen |
-| **I want to reset everything** | Delete `%APPDATA%\LiquidHUD\settings.json` |
+| **The overlay hides something behind it** | Use the **Outline** look, or **Free move** (`Ctrl+Alt+M`) and drag it somewhere empty |
+| **Reset everything** | Delete `%APPDATA%\LiquidHUD\settings.json` |
 
 ---
 
 ## Uninstall
 
-1. Right-click the widget and choose **Exit**.
+1. Right-click the tray icon and choose **Exit**.
 2. If you turned on **Start with Windows**, delete `LiquidHUD.lnk` from `shell:startup` (press `Win+R`, type `shell:startup`, press Enter).
 3. Delete the LiquidHUD folder and `%APPDATA%\LiquidHUD`.
 
@@ -228,18 +183,12 @@ These are estimates. Open **Settings** to see the live numbers on your machine.
 
 ## Roadmap
 
-Planned ideas, such as a big widget redesign and optional animations, are in [ROADMAP.md](ROADMAP.md).
+Ideas for later are in [ROADMAP.md](ROADMAP.md).
 
-## Not included (yet)
+## Not included
 
 - **CPU/GPU temperature.** Windows doesn't expose it without a kernel driver or admin rights.
-- **Game FPS.** Measuring FPS needs hooking into the game, which this project deliberately avoids.
-
----
-
-## License
-
-[MIT](LICENSE). Do whatever you like with it.
+- **Game FPS.** Measuring it needs hooking into the game, which this project deliberately avoids.
 
 ---
 
@@ -247,13 +196,20 @@ Planned ideas, such as a big widget redesign and optional animations, are in [RO
 
 | Version | What changed | Issues |
 |---|---|---|
-| **v12** | Lighter: software rendering, no bar animations, and slower GPU and process scans. Widget and free-move overlay stay on screen. Settings shows the RAM in use and the reserved RAM | #26, #27 |
-| v11 | Fixes the auto-hide blink (the bar sits closer to the edge, and the hot zone reaches the edge). Adds **Game mode** and **Adaptive text**. Item widths can shrink again, slowly | #22, #23, #24 |
-| v10.1 | A tighter overlay: items sized to their text, with grow-only widths | #20 |
-| v10 | Overlay **auto-hide**: a thin iPhone-style bar when idle, which expands when you hover it | #18 |
-| v9 | Compact overlay with dividers and a mini CPU + RAM graph. Outline now readable on white wallpapers (dark ring and text halo) | #14, #15, #16 |
-| v8 | 12h / 24h clock, **Bottom center** position, a fixed-width overlay that no longer jumps when centered, a separate metric list for the overlay, and a thinner Outline frame | #9, #10, #11, #12 |
-| v7 | Clear rendering only: Acrylic, Mica and the background sliders are removed. Added the **Outline / Solid** look and **Show** toggles for the widget and the overlay | #5, #6, #7 |
-| v6 | Every disk detected with a tick box each. Overlay can be pinned or free-moved. Faint box kept at 0 % | #2, #3, #4 |
+| **v13** | **Big widget removed.** LiquidHUD is now overlay-only and lives in the **system tray** (click for Settings, right-click for the menu). Disk, uptime and the 60 s graph are gone with the widget | #31 |
+| v12 | Lighter: software rendering, no bar animations, and slower GPU and process scans. Windows stay on screen | #26, #27 |
+| v11 | Fixes the auto-hide blink. Adds **Game mode** and **Adaptive text** | #22, #23, #24 |
+| v10.1 | A tighter overlay: items sized to their text | #20 |
+| v10 | Overlay **auto-hide**: a thin iPhone-style bar, which expands when you hover it | #18 |
+| v9 | Compact overlay with dividers and a mini CPU + RAM graph. Outline readable on white wallpapers | #14, #15, #16 |
+| v8 | 12h / 24h clock, **Bottom center**, a separate metric list for the overlay, and a thinner Outline frame | #9, #10, #11, #12 |
+| v7 | Outline / Solid look, and show toggles | #5, #6, #7 |
+| v6 | Overlay can be pinned or free-moved. Every disk detected | #2, #3, #4 |
 | v5 | Clear style with real transparency | #1 |
-| v4 | Settings window, metric picker, refresh rate, resource savings | |
+| v4 | Settings window, metric picker, refresh rate | |
+
+---
+
+## License
+
+[MIT](LICENSE)
