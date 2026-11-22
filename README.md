@@ -21,7 +21,7 @@ No installer, no Rainmeter, no HWiNFO, no admin rights. One `.ps1` file that liv
   - battery
   - a clock (12h or 24h)
 - **Lives in the system tray.** Open *Show hidden icons* on the taskbar, **click** the LiquidHUD icon for Settings, and **right-click** it for the menu
-- **Auto-hide:** shrinks to an iPhone-style thin bar. When you hover it, the overlay **smoothly grows out of the bar**, and when you move away it **slowly shrinks back**
+- **Auto-hide:** shrinks to an iPhone-style thin bar. When you hover it, the overlay **pours out of the bar like the macOS genie effect**, and when you move away it pours back in
 - **Game mode:** stays fully open over fullscreen and borderless games
 - **Adaptive text:** black text on bright scenes, white on dark ones
 - **Lightweight:**
@@ -83,7 +83,7 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\LiquidHUD.ps1
 | **Overlay position** | Top left, Top center, Top right, Bottom left, Bottom center, Bottom right, or Custom |
 | **Free move** | Drag the overlay anywhere. Untick it to lock it in place, and it goes back to click-through. It always stays on screen |
 | **Auto-hide** | Shrinks to a thin bar when idle and expands on hover. Not used in Free move or Custom |
-| **Smooth open / close animation** | On by default. The overlay grows out of the thin bar in 0.32 s (ease-out) and shrinks back in 0.28 s (ease-in). If the mouse comes back mid-close, it turns around smoothly. Untick it for instant |
+| **Genie open / close animation** | On by default. A macOS-style genie: the overlay pours out of the thin bar like a funnel (0.48 s) and back in (0.38 s). It follows the pinned position. If the mouse comes back mid-close, it reverses smoothly. Untick it for instant |
 | **Game mode** | Keeps the overlay open while a fullscreen or borderless app is in front |
 | **Adaptive text** | In the Outline look, black text on bright backgrounds and white on dark ones |
 | **Clock** | 24h (`18:46`) or 12h (`6:46 PM`) |
@@ -99,7 +99,7 @@ Settings are saved to `%APPDATA%\LiquidHUD\settings.json`.
 
 ### Auto-hide
 
-![Smooth open on hover, slow close on leave](docs/images/autohide-anim.gif)
+![Genie open on hover, genie close on leave](docs/images/autohide-anim.gif)
 
 ![Thin bar when idle, full overlay on hover](docs/images/autohide.png)
 
@@ -155,7 +155,9 @@ Every 2 s, LiquidHUD samples an 8 px strip right next to the bar. Above 62 % bri
 - **Hotkeys:** `RegisterHotKey` on a hidden message window.
 - **Low cost:**
   - software rendering
-  - GPU counters only when GPU is ticked
+  - GPU read in **one** category query per tick (not ~100 counters), and only when GPU is ticked
+  - no re-layout unless some text actually changed
+  - the genie animation timer only runs during a transition
   - process scan every 8 s, and only when a top-app metric is ticked
   - text only re-renders when it changes
   - memory trimmed every 60 s
@@ -199,7 +201,8 @@ Ideas for later are in [ROADMAP.md](ROADMAP.md).
 
 | Version | What changed | Issues |
 |---|---|---|
-| **v14** | **Smooth auto-hide animation**: slow open on hover and slow close on leave, which turns around if you come back. Also fixes the Settings position buttons and the Free move / Auto-hide / Game mode / Adaptive text toggles, which v13 had broken | #33 |
+| **v15** | **Genie animation** (macOS style). Much lighter GPU reading (one category read instead of ~100 counters), no re-layout when nothing changed, a single text shadow | #35 |
+| v14 | **Smooth auto-hide animation**: slow open on hover and slow close on leave, which turns around if you come back. Also fixes the Settings position buttons and the Free move / Auto-hide / Game mode / Adaptive text toggles, which v13 had broken | #33 |
 | v13 | **Big widget removed.** LiquidHUD is now overlay-only and lives in the **system tray** (click for Settings, right-click for the menu). Disk, uptime and the 60 s graph are gone with the widget | #31 |
 | v12 | Lighter: software rendering, no bar animations, and slower GPU and process scans. Windows stay on screen | #26, #27 |
 | v11 | Fixes the auto-hide blink. Adds **Game mode** and **Adaptive text** | #22, #23, #24 |

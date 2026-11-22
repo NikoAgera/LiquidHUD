@@ -5,6 +5,7 @@ Ideas to build next. Each one has a GitHub issue labelled [`roadmap`](https://gi
 ## Optional animations ([#29](https://github.com/NikoAgera/LiquidHUD/issues/29))
 **Off by default.** Layered windows redraw completely on every animation frame, which costs CPU.
 - [x] Overlay grows out of the thin bar on hover and shrinks back slowly (v14, #33)
+- [x] macOS genie-style open / close (v15, #35)
 - [ ] Numbers count up and down smoothly
 - [ ] Mini graph draws in smoothly
 - [ ] CPU/RAM value pulses when it goes red (over 85 %)

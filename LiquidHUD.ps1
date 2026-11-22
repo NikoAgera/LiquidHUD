@@ -1,5 +1,5 @@
 # =====================================================================
-#  LiquidHUD v14  -  game overlay system monitor for Windows
+#  LiquidHUD v15  -  game overlay system monitor for Windows
 #  Pure PowerShell + WPF (built into Windows). Nothing to install.
 #  https://github.com/NikoAgera/LiquidHUD
 #
@@ -159,18 +159,9 @@ $collector = {
     try { $cpuC = New-Object Diagnostics.PerformanceCounter('Processor Information', '% Processor Utility', '_Total'); [void]$cpuC.NextValue() }
     catch { try { $cpuC = New-Object Diagnostics.PerformanceCounter('Processor', '% Processor Time', '_Total'); [void]$cpuC.NextValue() } catch {} }
 
-    $script:gpuC = @()
-    function Clear-Gpu { foreach ($c in $script:gpuC) { try { $c.Dispose() } catch {} }; $script:gpuC = @() }
-    function Refresh-Gpu {
-        Clear-Gpu
-        try {
-            $cat = New-Object Diagnostics.PerformanceCounterCategory('GPU Engine')
-            $script:gpuC = @(foreach ($n in $cat.GetInstanceNames()) {
-                if ($n -notlike '*engtype_3D*') { continue }
-                try { $c = New-Object Diagnostics.PerformanceCounter('GPU Engine', 'Utilization Percentage', $n); [void]$c.NextValue(); $c } catch {}
-            })
-        } catch {}
-    }
+    # GPU: read the whole 'GPU Engine' category ONCE per tick and compute utilisation from raw samples.
+    # (Old way: ~100 PerformanceCounter objects, and every NextValue() re-read the whole category.)
+    $gpuCat = $null; $gpuPrev = @{}
 
     $ci = New-Object Microsoft.VisualBasic.Devices.ComputerInfo
     function NetBytes {
@@ -186,7 +177,6 @@ $collector = {
     $netSw = [Diagnostics.Stopwatch]::StartNew()
     $procSw = [Diagnostics.Stopwatch]::StartNew()
     $procPrev = @{}
-    $gpuSw = [Diagnostics.Stopwatch]::StartNew(); $gpuFresh = $false
     $diskSw = $null
     $trimSw = [Diagnostics.Stopwatch]::StartNew()
     $self = [Diagnostics.Process]::GetCurrentProcess()
@@ -201,16 +191,25 @@ $collector = {
             $n = @{ Cores = $cores }
             $n.Cpu = if ($cpuC) { [Math]::Min(100, $cpuC.NextValue()) } else { 0 }
 
-            # GPU counters are the most expensive -> only when enabled
+            # GPU (only when enabled): one ReadCategory() for all engines, 3D engines summed
             if ($w.Gpu) {
-                if (-not $gpuFresh -or $gpuSw.Elapsed.TotalSeconds -ge 60) { Refresh-Gpu; $gpuSw.Restart(); $gpuFresh = $true }
-                $g = 0.0
-                foreach ($c in $script:gpuC) { try { $g += $c.NextValue() } catch {} }
-                $n.Gpu = if ($script:gpuC.Count) { [Math]::Min(100, $g) } else { -1 }
-            } else {
-                if ($gpuFresh) { Clear-Gpu; $gpuFresh = $false }
+                if ($null -eq $gpuCat) { try { $gpuCat = New-Object Diagnostics.PerformanceCounterCategory('GPU Engine') } catch { $gpuCat = $false } }
                 $n.Gpu = -1
-            }
+                if ($gpuCat) {
+                    try {
+                        $col = $gpuCat.ReadCategory()['Utilization Percentage']
+                        $g = 0.0; $seen = 0; $cur = @{}
+                        foreach ($inst in $col.Values) {
+                            $nm = $inst.InstanceName
+                            if ($nm -notlike '*engtype_3D*') { continue }
+                            $smp = $inst.Sample; $cur[$nm] = $smp; $seen++
+                            if ($gpuPrev.ContainsKey($nm)) { $g += [Diagnostics.CounterSample]::Calculate($gpuPrev[$nm], $smp) }
+                        }
+                        $gpuPrev = $cur
+                        if ($seen) { $n.Gpu = [Math]::Min(100, $g) }
+                    } catch {}
+                }
+            } else { $gpuPrev = @{}; $n.Gpu = -1 }
 
             if ($w.Ram) { $n.RamTot = [double]$ci.TotalPhysicalMemory; $n.RamUsed = $n.RamTot - [double]$ci.AvailablePhysicalMemory }
 
@@ -269,7 +268,6 @@ $collector = {
         $iv = [int]$sync.Interval * 1000
         while ($loop.ElapsedMilliseconds -lt $iv -and -not $sync.Stop) { Start-Sleep -Milliseconds 200 }
     }
-    Clear-Gpu
 }
 
 $rs = [runspacefactory]::CreateRunspace(); $rs.Open()
@@ -299,14 +297,8 @@ function Win-Handle($w) { (New-Object Windows.Interop.WindowInteropHelper($w)).E
 $textShadow = New-Object Windows.Media.Effects.DropShadowEffect
 $textShadow.BlurRadius = 4; $textShadow.ShadowDepth = 0; $textShadow.Opacity = 1; $textShadow.Color = [Windows.Media.Colors]::Black
 $textShadow.Freeze()
-# second, wider halo layered on top: keeps white text readable on white wallpapers
-$textHalo = New-Object Windows.Media.Effects.DropShadowEffect
-$textHalo.BlurRadius = 9; $textHalo.ShadowDepth = 0; $textHalo.Opacity = 0.55; $textHalo.Color = [Windows.Media.Colors]::Black
-$textHalo.Freeze()
 $textShadowW = New-Object Windows.Media.Effects.DropShadowEffect
 $textShadowW.BlurRadius = 4; $textShadowW.ShadowDepth = 0; $textShadowW.Opacity = 1; $textShadowW.Color = [Windows.Media.Colors]::White; $textShadowW.Freeze()
-$textHaloW = New-Object Windows.Media.Effects.DropShadowEffect
-$textHaloW.BlurRadius = 9; $textHaloW.ShadowDepth = 0; $textHaloW.Opacity = 0.6; $textHaloW.Color = [Windows.Media.Colors]::White; $textHaloW.Freeze()
 
 # =====================================================================
 #  GAME OVERLAY
@@ -414,7 +406,7 @@ function Build-Osds {
                 Cpu = $w.FindName('oCpu'); Gpu = $w.FindName('oGpu'); Ram = $w.FindName('oRam'); Down = $w.FindName('oDown'); Up = $w.FindName('oUp')
                 TopCName = $w.FindName('oTopCName'); TopCVal = $w.FindName('oTopCVal'); TopRName = $w.FindName('oTopRName'); TopRVal = $w.FindName('oTopRVal')
                 Batt = $w.FindName('oBatt'); Clock = $w.FindName('oClock'); LineCpu = $w.FindName('oLineCpu'); LineRam = $w.FindName('oLineRam')
-                Full = $w.FindName('oFull'); Scale = $w.FindName('oScale'); Handle = $w.FindName('oHandle'); Collapsed = $false; LeaveAt = $null; Closing = $false; CloseAt = $null; Dark = $false; Shrink = @{}; Ink = (Collect-Ink $w) }
+                Full = $w.FindName('oFull'); Scale = $w.FindName('oScale'); Handle = $w.FindName('oHandle'); Collapsed = $false; LeaveAt = $null; Closing = $false; Q = 1.0; Dir = 0; LastT = 0.0; Dark = $false; Shrink = @{}; Ink = (Collect-Ink $w) }
         Apply-OsdMetrics $o
         $w.Show(); $w.UpdateLayout()
         try { $script:dpi = [Windows.PresentationSource]::FromVisual($w).CompositionTarget.TransformToDevice.M11 } catch {}
@@ -471,41 +463,73 @@ function Set-Free($on) {
 # =====================================================================
 $script:inFullscreen = $false
 function AutoHide-Active { $cfg.Overlay -and $cfg.OverlayAutoHide -and -not $cfg.OverlayFree -and [int]$cfg.OverlayPos -ne 5 -and -not ($cfg.GameMode -and $script:inFullscreen) }
-# ---------- smooth open / close (scale + fade, growing out of the thin bar) ----------
-$openMs = 320; $closeMs = 280
+# ---------- genie open / close (macOS-style): the bar pours out of the thin pill like a funnel ----------
+# WPF can't mesh-warp, so: an animated trapezoid clip (edge near the pill stays narrow longer,
+# far edge widens first) + ScaleY + fade. Driven by a 20 ms timer that only runs during a transition.
+$openMs = 480; $closeMs = 380
 $easeOut = New-Object Windows.Media.Animation.CubicEase; $easeOut.EasingMode = 'EaseOut'; $easeOut.Freeze()
-$easeIn = New-Object Windows.Media.Animation.CubicEase; $easeIn.EasingMode = 'EaseIn'; $easeIn.Freeze()
 function New-Anim($to, [int]$ms, $ease, $from = $null) {
     $a = New-Object Windows.Media.Animation.DoubleAnimation
-    if ($null -ne $from) { $a.From = [double]$from }      # no From = continue from wherever it is now
+    if ($null -ne $from) { $a.From = [double]$from }
     $a.To = [double]$to; $a.Duration = [TimeSpan]::FromMilliseconds($ms); $a.EasingFunction = $ease
     $a.Freeze(); $a
 }
-function Animate-Full($o, $to, [int]$ms, $ease, $from = $null) {
-    $sx = [Windows.Media.ScaleTransform]::ScaleXProperty; $sy = [Windows.Media.ScaleTransform]::ScaleYProperty
-    $op = [Windows.UIElement]::OpacityProperty
-    $fs = if ($null -ne $from) { 0.3 + 0.7 * $from } else { $null }
-    $o.Scale.BeginAnimation($sx, (New-Anim (0.3 + 0.7 * $to) $ms $ease $fs))
-    $o.Scale.BeginAnimation($sy, (New-Anim (0.3 + 0.7 * $to) $ms $ease $fs))
-    $o.Full.BeginAnimation($op, (New-Anim $to $ms $ease $from))
+function Pos-Anchor { $p = [int]$cfg.OverlayPos; if (@(0, 3) -contains $p) { 0.0 } elseif (@(2, 4) -contains $p) { 1.0 } else { 0.5 } }
+function Pos-Bottom { @(3, 4, 6) -contains [int]$cfg.OverlayPos }
+function Set-Origin($o) { $o.Full.RenderTransformOrigin = New-Object Windows.Point((Pos-Anchor), $(if (Pos-Bottom) { 1 } else { 0 })) }
+function Apply-Genie($o) {
+    $W = $o.Full.ActualWidth; $H = $o.Full.ActualHeight
+    if ($W -le 0 -or $H -le 0) { return }
+    $q = [Math]::Max(0.0, [Math]::Min(1.0, $o.Q))
+    $pf = [Math]::Min(1.0, 110.0 / $W)                                   # pill width as a fraction of the bar
+    $near = $pf + (1 - $pf) * [Math]::Pow($q, 2.2)                      # edge touching the pill: opens late
+    $far  = $pf + (1 - $pf) * [Math]::Pow($q, 0.55)                     # far edge: opens early
+    $h = [Math]::Min(1.0, $q * 1.15) * $H
+    $ax = Pos-Anchor
+    $nL = $ax * ($W - $near * $W); $nR = $nL + $near * $W
+    $fL = $ax * ($W - $far * $W);  $fR = $fL + $far * $W
+    if (Pos-Bottom) { $yN = $H; $yF = $H - $h } else { $yN = 0; $yF = $h }
+    $geo = New-Object Windows.Media.StreamGeometry
+    $ctx = $geo.Open()
+    $ctx.BeginFigure((New-Object Windows.Point($nL, $yN)), $true, $true)
+    $ctx.PolyLineTo([Windows.Point[]]@((New-Object Windows.Point($nR, $yN)), (New-Object Windows.Point($fR, $yF)), (New-Object Windows.Point($fL, $yF))), $true, $false)
+    $ctx.Close(); $geo.Freeze()
+    $o.Full.Clip = $geo
+    $o.Scale.ScaleX = 1
+    $o.Scale.ScaleY = 0.4 + 0.6 * [Math]::Min(1.0, $q * 1.3)
+    $o.Full.Opacity = [Math]::Min(1.0, $q * 3)
 }
 function Reset-Full($o) {
-    $o.Scale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $null); $o.Scale.ScaleX = 1
-    $o.Scale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $null); $o.Scale.ScaleY = 1
-    $o.Full.BeginAnimation([Windows.UIElement]::OpacityProperty, $null); $o.Full.Opacity = 1
+    $o.Full.Clip = $null
+    $o.Scale.ScaleX = 1; $o.Scale.ScaleY = 1; $o.Full.Opacity = 1
 }
-# grow from / shrink into the pill: left, center or right; top or bottom
-function Set-Origin($o) {
-    $p = [int]$cfg.OverlayPos
-    $x = if (@(0, 3) -contains $p) { 0 } elseif (@(2, 4) -contains $p) { 1 } else { 0.5 }
-    $y = if (@(3, 4, 6) -contains $p) { 1 } else { 0 }
-    $o.Full.RenderTransformOrigin = New-Object Windows.Point($x, $y)
+$script:animSw = [Diagnostics.Stopwatch]::StartNew()
+$animTimer = New-Object Windows.Threading.DispatcherTimer
+$animTimer.Interval = [TimeSpan]::FromMilliseconds(20)
+$animTimer.Add_Tick({
+    try {
+        $now = $script:animSw.Elapsed.TotalMilliseconds; $busy = $false
+        foreach ($o in $script:osds) {
+            if (-not $o.Dir) { continue }
+            $dt = $now - $o.LastT; $o.LastT = $now
+            $o.Q += $o.Dir * $dt / $(if ($o.Dir -gt 0) { $openMs } else { $closeMs })
+            if ($o.Dir -gt 0 -and $o.Q -ge 1) { $o.Q = 1; $o.Dir = 0; Reset-Full $o; continue }
+            if ($o.Dir -lt 0 -and $o.Q -le 0) { $o.Q = 0; $o.Dir = 0; Finish-Collapse $o; continue }
+            Apply-Genie $o; $busy = $true
+        }
+        if (-not $busy) { $animTimer.Stop() }
+    } catch {}
+})
+function Start-Genie($o, [int]$dir) {
+    $o.Dir = $dir; $o.LastT = $script:animSw.Elapsed.TotalMilliseconds
+    Set-Origin $o; Apply-Genie $o
+    if (-not $animTimer.IsEnabled) { $animTimer.Start() }
 }
 function Finish-Collapse($o) {
-    $o.Closing = $false; $o.CloseAt = $null; $o.Collapsed = $true; $o.LeaveAt = $null
+    $o.Closing = $false; $o.Dir = 0; $o.Q = 0; $o.Collapsed = $true; $o.LeaveAt = $null
     Reset-Full $o
     $o.Full.Visibility = 'Collapsed'; $o.Handle.Visibility = 'Visible'
-    if ($cfg.Animations) { $o.Handle.BeginAnimation([Windows.UIElement]::OpacityProperty, (New-Anim 1 180 $easeOut 0)) }
+    if ($cfg.Animations) { $o.Handle.BeginAnimation([Windows.UIElement]::OpacityProperty, (New-Anim 1 160 $easeOut 0)) }
     Apply-OsdLook $o
     $o.Win.UpdateLayout(); Place-Osd $o
 }
@@ -515,19 +539,18 @@ function Set-OsdCollapsed($o, [bool]$c, [bool]$instant = $false) {
         if ($o.Collapsed) { return }
         if ($anim) {
             if ($o.Closing) { return }
-            # close slowly: shrink + fade toward the pill, then swap to the pill (finished by the hover timer)
-            $o.Closing = $true; $o.CloseAt = [DateTime]::Now.AddMilliseconds($closeMs)
-            Set-Origin $o
-            Animate-Full $o 0 $closeMs $easeIn
+            $o.Closing = $true
+            if ($o.Dir -eq 0) { $o.Q = 1 }
+            Start-Genie $o -1            # pour back into the pill; the anim timer swaps to the pill at the end
             return
         }
         Finish-Collapse $o
         return
     }
     if ($o.Closing) {
-        # mouse came back while closing: turn around smoothly from wherever it is
-        $o.Closing = $false; $o.CloseAt = $null; $o.LeaveAt = $null
-        if ($anim) { Animate-Full $o 1 $openMs $easeOut } else { Reset-Full $o }
+        # mouse came back mid-close: reverse from wherever it is
+        $o.Closing = $false; $o.LeaveAt = $null
+        if ($anim) { Start-Genie $o 1 } else { $o.Dir = 0; $o.Q = 1; Reset-Full $o }
         return
     }
     if (-not $o.Collapsed) { return }
@@ -536,7 +559,7 @@ function Set-OsdCollapsed($o, [bool]$c, [bool]$instant = $false) {
     $o.Handle.Visibility = 'Collapsed'; $o.Full.Visibility = 'Visible'
     Apply-OsdLook $o
     $o.Win.UpdateLayout(); Place-Osd $o
-    if ($anim) { Set-Origin $o; Animate-Full $o 1 $openMs $easeOut 0 } else { Reset-Full $o }
+    if ($anim) { $o.Q = 0; Start-Genie $o 1 } else { $o.Dir = 0; $o.Q = 1; Reset-Full $o }
 }
 function Apply-AutoHide {
     $on = AutoHide-Active
@@ -578,9 +601,8 @@ $hoverTimer.Add_Tick({
     try {
         $p = [System.Windows.Forms.Cursor]::Position
         foreach ($o in $script:osds) {
-            if ($o.Closing -and [DateTime]::Now -ge $o.CloseAt) { Finish-Collapse $o; continue }
             $rc = [LhNative]::Rect($o.H); $L = $rc[0]; $T = $rc[1]; $R = $rc[2]; $B = $rc[3]
-            $sb = [System.Windows.Forms.Screen]::FromHandle($o.H).Bounds
+            $sb = $o.Screen.Bounds
             # generous hot zone around the thin pill, a grace margin around the full bar
             if ($o.Collapsed) { $dx = 28 * $script:dpi; $dy = 14 * $script:dpi } else { $dx = 14 * $script:dpi; $dy = 14 * $script:dpi }
             $zT = $T - $dy; $zB = $B + $dy
@@ -646,11 +668,11 @@ function Apply-OsdLook($o) {
             # bright background behind the overlay -> black text, dark frame, white glow
             $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdgeDark; $o.Bg.BorderThickness = 1
             $o.Halo.BorderBrush = $haloLight
-            $o.Body.Effect = $textShadowW; $o.Pad.Effect = $textHaloW
+            $o.Body.Effect = $textShadowW; $o.Pad.Effect = $null
         } else {
             $o.Bg.Background = $clearFill; $o.Bg.BorderBrush = $outlineEdge; $o.Bg.BorderThickness = 1
             $o.Halo.BorderBrush = $haloDark
-            $o.Body.Effect = $textShadow; $o.Pad.Effect = $textHalo
+            $o.Body.Effect = $textShadow; $o.Pad.Effect = $null
         }
     }
     Apply-OsdInk $o
@@ -743,7 +765,7 @@ $settingsXaml = @"
       <WrapPanel x:Name="sPos"/>
       <CheckBox x:Name="sFree" Width="300" Margin="0,6,0,0" Content="Free move  (drag the overlay, untick to lock it)"/>
       <CheckBox x:Name="sAuto" Width="300" Margin="0,0,0,0" Content="Auto-hide  (thin bar, hover to show)"/>
-      <CheckBox x:Name="sAnim" Width="300" Margin="0,8,0,0" Content="Smooth open / close animation"/>
+      <CheckBox x:Name="sAnim" Width="300" Margin="0,8,0,0" Content="Genie open / close animation  (macOS style)"/>
       <CheckBox x:Name="sGame" Width="300" Margin="0,8,0,0" Content="Game mode  (stay open over fullscreen apps)"/>
       <CheckBox x:Name="sInk" Width="300" Margin="0,8,0,0" Content="Adaptive text  (black on bright, white on dark)"/>
 
@@ -927,7 +949,7 @@ function Refresh-Menu {
 function Toggle-Overlay { $cfg.Overlay = -not $cfg.Overlay; if (-not $cfg.Overlay) { $cfg.OverlayFree = $false }; Save-Cfg; Build-Osds; $sync.Want = Want-Table; Sync-Settings; Refresh-Menu }
 function Cycle-Pos { $k = [array]::IndexOf($posOrder, [int]$cfg.OverlayPos); Set-Pos $posOrder[($k + 1) % $posOrder.Count] }
 function Quit-All {
-    $timer.Stop(); $hoverTimer.Stop(); $watchTimer.Stop(); $sync.Stop = $true
+    $timer.Stop(); $hoverTimer.Stop(); $watchTimer.Stop(); $animTimer.Stop(); $sync.Stop = $true
     $cfg.OverlayFree = $false
     Save-Cfg
     try { $tray.Visible = $false; $tray.Dispose() } catch {}
@@ -989,7 +1011,7 @@ function Draw-Line($line, $hist, [double]$wd, [double]$ht, [int]$max) {
 }
 $histOC = New-Object System.Collections.Generic.List[double]
 $histOR = New-Object System.Collections.Generic.List[double]
-function Set-Text($tb, $txt) { if ($tb.Text -ne $txt) { $tb.Text = $txt } }
+function Set-Text($tb, $txt) { if ($tb.Text -ne $txt) { $tb.Text = $txt; $script:chg = $true } }
 $white = Brush '#FFFFFF'; $hot = Brush '#F09595'
 $arrowDown = [string][char]0x2193; $arrowUp = [string][char]0x2191
 
@@ -1014,6 +1036,7 @@ $timer.Add_Tick({
     $downTxt = if ($null -ne $d.Down) { (Fmt-Bytes $d.Down) + '/s' } else { '' }
     $upTxt = if ($null -ne $d.Up) { (Fmt-Bytes $d.Up) + '/s' } else { '' }
     foreach ($o in $script:osds) {
+        $script:chg = $false
         Set-Text $o.Cpu $cpuTxt; $o.Cpu.Foreground = if ($d.Cpu -gt 85) { $o.Hot } else { $o.Main }
         Set-Text $o.Gpu $gpuTxt
         Set-Text $o.Ram $ramTxt; $o.Ram.Foreground = if ($ramPct -gt 85) { $o.Hot } else { $o.Main }
@@ -1025,7 +1048,7 @@ $timer.Add_Tick({
         if ($osdGraph) { Draw-Line $o.LineCpu $histOC 56 18 30; Draw-Line $o.LineRam $histOR 56 18 30 }
         # widths: grow at once, shrink only after a value has been shorter for 6 updates in a row.
         # Tight bar, and a centered bar never jitters.
-        if (-not $o.Collapsed) {
+        if ($script:chg -and -not $o.Collapsed -and -not $o.Dir) {
             $inf = New-Object Windows.Size([double]::PositiveInfinity, [double]::PositiveInfinity)
             foreach ($k in $osdKeys) {
                 $sg = $o.Seg[$k]; if ($sg.Visibility -ne 'Visible') { continue }
